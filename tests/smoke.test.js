@@ -277,3 +277,22 @@ test('Boss 阶段随血量切换且死亡进入胜利结算', () => {
   game.damageEnemy(b, 5, 0, {});
   assert.strictEqual(game.state.screen, 'win', 'Boss 死亡应胜利');
 });
+
+test('屏幕状态机与重新开始', () => {
+  const { game } = makeGame();
+  assert.strictEqual(game.state.screen, 'start');
+  game.setScreen('playing');
+  assert.strictEqual(game.state.screen, 'playing');
+  game.setScreen('dead');
+  game.restart();
+  assert.strictEqual(game.state.screen, 'start');
+  assert.ok(game.world.player.hp === game.world.player.maxHp, '重开后满血');
+});
+
+test('HUD 数据完整', () => {
+  const { game } = makeGame();
+  const h = game.hudData();
+  for (const k of ['hp', 'ammo', 'magSize', 'coins', 'kills', 'screen']) {
+    assert.ok(k in h, 'hudData 应包含 ' + k);
+  }
+});

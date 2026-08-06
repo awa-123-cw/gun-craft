@@ -525,7 +525,8 @@ const Game = (() => {
       shopPos: null,
       chest: null,
       mapInfo: { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 },
-      transition: { active: false, t: 0, rx: 0, ry: 0 }
+      transition: { active: false, t: 0, rx: 0, ry: 0 },
+      hpDelay: 100
     };
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [] };
@@ -1004,7 +1005,67 @@ const Game = (() => {
       world.stats.comboT = now;
     }
 
-    function setScreen(name) { state.screen = name; }
+    function setScreen(name) {
+      state.screen = name;
+      state.paused = name === 'paused';
+    }
+
+    function resetState() {
+      world.player = {
+        x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
+        hp: 100, maxHp: 100, radius: 14, speed: 260,
+        aimAngle: 0, invuln: 0, recoil: 0
+      };
+      world.guns = [buildGun('pistol_body', 'standard_ammo', 'none_mod'), buildGun('pistol_body', 'standard_ammo', 'none_mod')];
+      world.activeGun = 0;
+      world.enemies.length = 0;
+      world.bullets.length = 0;
+      world.particles.length = 0;
+      world.pickups.length = 0;
+      world.casings.length = 0;
+      world.floaters.length = 0;
+      world.tracers.length = 0;
+      world.impactMarks.length = 0;
+      world.chains.length = 0;
+      world.room = { id: 0, type: 'start', x: 0, y: 0, w: ROOM_W, h: ROOM_H, cleared: false, doors: { n: false, e: false, s: false, w: false } };
+      world.map = null;
+      world.coins = 0;
+      world.time = 0;
+      world.stats = { kills: 0, combo: 0, comboT: -9, score: 0 };
+      world.inventory.length = 0;
+      world.shopOffers.length = 0;
+      world.shopPrices.length = 0;
+      world.shopPos = null;
+      world.chest = null;
+      world.chestPart = null;
+      world.mapInfo = { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 };
+      world.transition.active = false;
+      world.hpDelay = 100;
+      camera.x = ROOM_W / 2;
+      camera.y = ROOM_H / 2;
+      input.keys.clear();
+      input.pressedSet.clear();
+      input.mouse.down = false;
+      input.wheelDelta = 0;
+      ui.panel = 'none';
+      ui.items = [];
+      ui.title = '';
+      fx.hitStopMs = 0;
+      fx.shakePower = 0;
+      fx.slowmoFactor = 1;
+      fx.slowmoT = 0;
+    }
+
+    function beginRun() {
+      resetState();
+      startMap(Math.floor(Math.random() * 100000) + 1);
+      setScreen('playing');
+    }
+
+    function restart() {
+      resetState();
+      setScreen('start');
+    }
 
     // ---------- input ----------
     function onKeyDown(e) {
@@ -1018,9 +1079,20 @@ const Game = (() => {
     }
     function onMouseDown(e) {
       if (e.button !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
       if (ui.panel !== 'none') {
-        const rect = canvas.getBoundingClientRect();
-        uiClick(e.clientX - rect.left, e.clientY - rect.top);
+        uiClick(mx, my);
+        return;
+      }
+      if (state.screen !== 'playing') {
+        for (const b of overlayButtons()) {
+          if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+            b.action();
+            return;
+          }
+        }
         return;
       }
       input.mouse.down = true;
@@ -1039,6 +1111,19 @@ const Game = (() => {
 
     // ---------- update ----------
     function update(dt) {
+      if (input.pressedSet.has('Escape')) {
+        if (ui.panel !== 'none') {
+          closePanel();
+        } else if (state.screen === 'playing') {
+          setScreen('paused');
+        } else if (state.screen === 'paused') {
+          setScreen('playing');
+        }
+      }
+      if (input.pressedSet.has('Enter') &&
+          (state.screen === 'start' || state.screen === 'dead' || state.screen === 'win')) {
+        beginRun();
+      }
       if (input.pressedSet.has('Tab')) {
         if (ui.panel === 'parts') closePanel();
         else openPanel('parts');
@@ -1107,6 +1192,8 @@ const Game = (() => {
 
       p.invuln -= dt;
       fx.shakePower *= Math.exp(-6 * dt);
+      if (p.hp < world.hpDelay) world.hpDelay = Math.max(p.hp, world.hpDelay - 26 * dt);
+      else world.hpDelay = p.hp;
 
       camera.x += (p.x - camera.x) * Math.min(1, 10 * dt);
       camera.y += (p.y - camera.y) * Math.min(1, 10 * dt);
@@ -1557,6 +1644,8 @@ const Game = (() => {
       ctx.restore();
       drawHUD();
       drawPanel();
+      drawOverlay();
+      drawLowHpVignette();
       if (world.transition.active) {
         ctx.fillStyle = 'rgba(4, 8, 14, ' + (world.transition.t / 0.6) + ')';
         ctx.fillRect(0, 0, view.w, view.h);
@@ -1979,10 +2068,34 @@ const Game = (() => {
 
     function drawHUD() {
       const g = gun();
+      const p = world.player;
       ctx.fillStyle = 'rgba(53, 224, 255, 0.7)';
       ctx.font = '14px Consolas, monospace';
       ctx.textAlign = 'left';
       ctx.fillText('T ' + world.time.toFixed(1) + 's', 14, 24);
+
+      // 生命格子条
+      const cells = 10, cw = 26, ch = 12, gap = 2;
+      const cellHp = p.maxHp / cells;
+      const hx = 14, hy = view.h - 34;
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(hx - 2, hy - 2, cells * (cw + gap) + 2, ch + 4);
+      for (let i = 0; i < cells; i++) {
+        const x = hx + i * (cw + gap);
+        ctx.fillStyle = 'rgba(4, 8, 14, 0.9)';
+        ctx.fillRect(x, hy, cw, ch);
+        if (p.hp > i * cellHp) {
+          ctx.fillStyle = '#35e0ff';
+          ctx.fillRect(x, hy, cw, ch);
+        } else if (world.hpDelay > i * cellHp) {
+          ctx.fillStyle = 'rgba(255,255,255,0.55)';
+          ctx.fillRect(x, hy, cw, ch);
+        }
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '13px Consolas, monospace';
+      ctx.fillText(Math.ceil(p.hp) + ' / ' + p.maxHp, hx, hy - 6);
+
       ctx.textAlign = 'right';
       ctx.fillStyle = g.mag === 0 ? '#ff4d5e' : '#ffd166';
       ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, view.h - 18);
@@ -1991,11 +2104,131 @@ const Game = (() => {
         const w = 120 * (1 - g.reloadT / g.stats.reloadTime);
         ctx.fillRect(view.w - 14 - w, view.h - 12, w, 4);
       }
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '12px Consolas, monospace';
+      ctx.fillText(g.parts.body.name + ' · ' + g.parts.ammo.name + ' · ' + g.parts.mod.name, view.w - 14, view.h - 42);
       ctx.fillStyle = 'rgba(255, 77, 94, 0.7)';
-      ctx.fillText('击杀 ' + world.stats.kills, view.w - 14, 24);
+      ctx.font = '14px Consolas, monospace';
+      ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,255,255,0.55)';
       ctx.fillText('房间 ' + world.mapInfo.clearedRooms + '/' + world.mapInfo.totalRooms, view.w / 2, 24);
+
+      if (world.stats.combo > 1 && world.time - world.stats.comboT < 0.5) {
+        ctx.fillStyle = '#ffd166';
+        ctx.font = 'bold 22px Consolas, monospace';
+        ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 70);
+      }
+    }
+
+    function drawLowHpVignette() {
+      if (state.screen !== 'playing' || world.player.hp >= world.player.maxHp * 0.3) return;
+      const a = 0.18 + 0.12 * Math.sin(world.time * 4);
+      const grad = ctx.createRadialGradient
+        ? ctx.createRadialGradient(view.w / 2, view.h / 2, view.h * 0.35, view.w / 2, view.h / 2, view.h * 0.72)
+        : null;
+      if (grad && grad.addColorStop) {
+        grad.addColorStop(0, 'rgba(255, 0, 0, 0)');
+        grad.addColorStop(1, 'rgba(255, 40, 60, ' + a.toFixed(3) + ')');
+        ctx.fillStyle = grad;
+      } else {
+        ctx.fillStyle = 'rgba(255, 40, 60, ' + (a * 0.5).toFixed(3) + ')';
+      }
+      ctx.fillRect(0, 0, view.w, view.h);
+    }
+
+    function overlayButtons() {
+      const bw = 220, bh = 46;
+      const cx = view.w / 2;
+      const list = [];
+      if (state.screen === 'start') {
+        list.push({ x: cx - bw / 2, y: view.h / 2 + 70, w: bw, h: bh, label: '开始游戏', action: beginRun });
+      } else if (state.screen === 'paused') {
+        list.push({ x: cx - bw / 2, y: view.h / 2 + 10, w: bw, h: bh, label: '继续', action: () => setScreen('playing') });
+        list.push({ x: cx - bw / 2, y: view.h / 2 + 70, w: bw, h: bh, label: '重新开始', action: restart });
+      } else if (state.screen === 'dead' || state.screen === 'win') {
+        list.push({
+          x: cx - bw / 2, y: view.h / 2 + 80, w: bw, h: bh,
+          label: state.screen === 'dead' ? '重新开始' : '再来一局',
+          action: beginRun
+        });
+      }
+      return list;
+    }
+
+    function drawOverlay() {
+      if (state.screen === 'playing') return;
+      ctx.fillStyle = 'rgba(4, 8, 14, 0.78)';
+      ctx.fillRect(0, 0, view.w, view.h);
+      ctx.textAlign = 'center';
+      if (state.screen === 'start') {
+        ctx.fillStyle = '#35e0ff';
+        ctx.shadowColor = '#35e0ff';
+        ctx.shadowBlur = 18;
+        ctx.font = 'bold 54px Consolas, monospace';
+        ctx.fillText('枪械工艺', view.w / 2, view.h / 2 - 90);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '14px Consolas, monospace';
+        ctx.fillText('WASD 移动 · 鼠标瞄准/射击 · R 换弹 · 1/2/滚轮切枪', view.w / 2, view.h / 2 - 34);
+        ctx.fillText('Tab 部件面板 · E 开箱/商店 · ESC 暂停', view.w / 2, view.h / 2 - 10);
+        ctx.fillStyle = 'rgba(255,209,102,0.85)';
+        ctx.fillText('收集枪械部件，拼装武器，击败机械核心', view.w / 2, view.h / 2 + 24);
+      } else if (state.screen === 'paused') {
+        ctx.fillStyle = '#ffd166';
+        ctx.font = 'bold 38px Consolas, monospace';
+        ctx.fillText('已暂停', view.w / 2, view.h / 2 - 50);
+      } else if (state.screen === 'dead') {
+        ctx.fillStyle = '#ff4d5e';
+        ctx.font = 'bold 44px Consolas, monospace';
+        ctx.fillText('信号中断', view.w / 2, view.h / 2 - 80);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.font = '15px Consolas, monospace';
+        ctx.fillText('存活 ' + world.time.toFixed(1) + 's · 击杀 ' + world.stats.kills + ' · 金币 ' + world.coins,
+          view.w / 2, view.h / 2 - 40);
+      } else if (state.screen === 'win') {
+        ctx.fillStyle = '#ffd166';
+        ctx.font = 'bold 44px Consolas, monospace';
+        ctx.fillText('核心已摧毁', view.w / 2, view.h / 2 - 80);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.font = '15px Consolas, monospace';
+        ctx.fillText('用时 ' + world.time.toFixed(1) + 's · 击杀 ' + world.stats.kills +
+          ' · 金币 ' + world.coins + ' · 部件 ' + world.inventory.length,
+          view.w / 2, view.h / 2 - 40);
+      }
+      for (const b of overlayButtons()) {
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+        ctx.strokeStyle = '#35e0ff';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#35e0ff';
+        ctx.shadowBlur = 10;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.shadowBlur = 0;
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '16px Consolas, monospace';
+        ctx.fillText(b.label, view.w / 2, b.y + 29);
+      }
+      ctx.textAlign = 'left';
+    }
+
+    function hudData() {
+      const p = world.player;
+      const g = gun();
+      return {
+        hp: p.hp,
+        maxHp: p.maxHp,
+        ammo: g.mag,
+        magSize: g.stats.magSize,
+        reloading: g.reloading,
+        coins: world.coins,
+        kills: world.stats.kills,
+        combo: world.stats.combo,
+        roomPos: world.mapInfo.roomPos,
+        totalRooms: world.mapInfo.totalRooms,
+        guns: world.guns.map(x => ({ name: x.parts.body.name, color: x.parts.body.color })),
+        screen: state.screen
+      };
     }
 
     // ---------- main loop ----------
@@ -2023,7 +2256,6 @@ const Game = (() => {
       onResize();
       last = performance.now();
       raf = requestAnimationFrame(frame);
-      startMap(Math.floor(Math.random() * 100000) + 1);
     }
 
     return {
@@ -2033,7 +2265,7 @@ const Game = (() => {
       equipPart, pushPart, spawnPickup,
       openPanel, closePanel, uiClick,
       startMap, enterRoom,
-      update, render, start, setScreen,
+      update, render, start, setScreen, restart, beginRun, hudData,
       VERSION
     };
   }
