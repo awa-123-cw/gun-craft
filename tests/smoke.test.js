@@ -120,3 +120,49 @@ test('开火时产生枪口火光与弹壳反馈', () => {
   assert.ok(game.world.casings.length > 0, '应产生弹壳');
   assert.ok(game.gun().stats.fireRate > 0);
 });
+
+test('子弹命中敌人造成伤害与受击反馈', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  game.world.enemies.push(e);
+  const before = e.hp;
+  game.damageEnemy(e, 10, 0);
+  assert.ok(e.hp < before, '应扣血');
+  assert.ok(e.flash > 0, '受击白闪');
+  assert.ok(game.world.particles.some(p => p.kind === 'spark'), '命中火花');
+  assert.ok(game.world.floaters.some(f => f.text === '10'), '伤害飘字');
+});
+
+test('击杀触发碎裂/hit-stop/击杀音', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  e.hp = 5;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 10, 0);
+  assert.ok(!game.world.enemies.includes(e), '敌人应被移除');
+  assert.ok(game.world.particles.some(p => p.kind === 'burst'), '击杀碎裂粒子');
+  assert.ok(game.fx.hitStopMs > 0, 'hit-stop 生效');
+});
+
+test('红冲锋敌人状态机：接近后预备冲撞', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 60, 100, 1);
+  game.world.player.x = 100;
+  game.world.player.y = 100;
+  game.world.enemies.push(e);
+  for (let i = 0; i < 60; i++) game.update(1 / 120);
+  assert.ok(e.state === 'telegraph' || e.state === 'dash', '应进入预备或冲撞状态，实际=' + e.state);
+});
+
+test('橙射手敌人开火与玩家受伤', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('shooter', 380, 100, 1);
+  game.world.player.x = 100;
+  game.world.player.y = 100;
+  game.world.player.hp = 100;
+  game.world.enemies.push(e);
+  for (let i = 0; i < 280; i++) game.update(1 / 120); // t≈2.33s，弹应仍在飞行
+  assert.ok(game.world.bullets.some(b => !b.friendly), '橙敌人应射出敌弹');
+  for (let i = 280; i < 420; i++) game.update(1 / 120);
+  assert.ok(game.world.player.hp < 100, '玩家应被敌弹击中掉血');
+});

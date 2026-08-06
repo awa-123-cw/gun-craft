@@ -77,6 +77,20 @@ const Game = (() => {
     }
   };
 
+  // ===== ENEMY_KINDS =====
+  const ENEMY_KINDS = {
+    chaser: {
+      name: '冲锋者', color: '#ff4d5e', coreColor: '#7a0d1e',
+      hp: 34, radius: 18, speed: 70, dmg: 18,
+      behavior: 'chase_telegraph_dash', dashSpeed: 460, telegraphT: 0.45, cooldown: 1.6
+    },
+    shooter: {
+      name: '射手', color: '#ff9f43', coreColor: '#7a3b00',
+      hp: 22, radius: 16, speed: 60, dmg: 10,
+      behavior: 'keep_distance_shoot', range: 330, fireInterval: 2.0, bulletSpeed: 210
+    }
+  };
+
   function buildGun(bodyId, ammoId, modId) {
     const b = PARTS.body[bodyId];
     const a = PARTS.ammo[ammoId];
@@ -160,6 +174,14 @@ const Game = (() => {
           noise(0.05, 0.45, 3200);
           tone(240 + Math.random() * 20, 70, 0.07, 'square', 0.22);
           break;
+        case 'hit':
+          noise(0.03, 0.3, 4500);
+          tone(500 + Math.random() * 100, 300, 0.04, 'square', 0.12);
+          break;
+        case 'kill':
+          tone(200, 60, 0.18, 'triangle', 0.3);
+          noise(0.12, 0.25, 900);
+          break;
       }
     }
     return { play };
@@ -185,7 +207,9 @@ const Game = (() => {
       room: { id: 0, type: 'start', x: 0, y: 0, w: ROOM_W, h: ROOM_H, cleared: false, doors: { n: false, e: false, s: false, w: false } },
       map: null,
       coins: 0,
-      time: 0
+      time: 0,
+      stats: { kills: 0, combo: 0, comboT: -9, score: 0 },
+      enemySeq: 0
     };
     const state = { screen: 'start', paused: false };
     const camera = { x: world.player.x, y: world.player.y };
@@ -200,6 +224,94 @@ const Game = (() => {
       const ng = buildGun(g.slots.body, g.slots.ammo, g.slots.mod);
       ng.mag = Math.min(g.mag, ng.stats.magSize);
       world.guns[i] = ng;
+    }
+
+    // ===== 敌人 =====
+    function spawnEnemy(kind, x, y, scale) {
+      const k = ENEMY_KINDS[kind];
+      const s = scale || 1;
+      const hpScale = 1 + (s - 1) * 0.6;
+      return {
+        id: world.enemySeq++,
+        kind, x, y, vx: 0, vy: 0,
+        hp: k.hp * hpScale, maxHp: k.hp * hpScale,
+        radius: k.radius * s, color: k.color, coreColor: k.coreColor,
+        scale: s, speed: k.speed, dmg: k.dmg,
+        behavior: k.behavior,
+        state: 'idle', stateT: 0, flash: 0,
+        kbvx: 0, kbvy: 0, hitCd: 0, dead: false,
+        dashAngle: 0, fireT: k.fireInterval || 0
+      };
+    }
+
+    function spawnEnemyBullet(x, y, angle, speed, damage, color) {
+      world.bullets.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        damage, pierce: 0, friendly: false,
+        life: 6, color: color || '#ff9f43', size: 4, kind: 'enemy'
+      });
+    }
+
+    function updateEnemies(dt) {
+      for (let i = world.enemies.length - 1; i >= 0; i--) {
+        const e = world.enemies[i];
+        e.flash -= dt;
+        e.hitCd -= dt;
+        e.x += e.kbvx * dt;
+        e.y += e.kbvy * dt;
+        const kbDamp = Math.exp(-10 * dt);
+        e.kbvx *= kbDamp;
+        e.kbvy *= kbDamp;
+        updateEnemyAI(e, dt);
+        e.x = utils.clamp(e.x, e.radius, world.room.w - e.radius);
+        e.y = utils.clamp(e.y, e.radius, world.room.h - e.radius);
+      }
+    }
+
+    function updateEnemyAI(e, dt) {
+      const p = world.player;
+      const dx = p.x - e.x;
+      const dy = p.y - e.y;
+      const dist = Math.hypot(dx, dy) || 0.001;
+      const ux = dx / dist;
+      const uy = dy / dist;
+      const k = ENEMY_KINDS[e.kind];
+
+      e.stateT -= dt;
+      if (e.behavior === 'chase_telegraph_dash') {
+        if (e.state === 'idle') {
+          e.x += ux * e.speed * dt;
+          e.y += uy * e.speed * dt;
+          if (dist < 260) { e.state = 'telegraph'; e.stateT = k.telegraphT; }
+        } else if (e.state === 'telegraph') {
+          if (e.stateT <= 0) { e.state = 'dash'; e.dashAngle = Math.atan2(dy, dx); e.stateT = 0.35; }
+        } else if (e.state === 'dash') {
+          e.x += Math.cos(e.dashAngle) * k.dashSpeed * dt;
+          e.y += Math.sin(e.dashAngle) * k.dashSpeed * dt;
+          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle);
+          if (e.stateT <= 0) { e.state = 'recover'; e.stateT = k.cooldown; }
+        } else if (e.state === 'recover') {
+          if (e.stateT <= 0) e.state = 'idle';
+        }
+      } else if (e.behavior === 'keep_distance_shoot') {
+        if (dist < 220) {
+          e.x -= ux * e.speed * dt;
+          e.y -= uy * e.speed * dt;
+        } else if (dist > k.range) {
+          e.x += ux * e.speed * dt;
+          e.y += uy * e.speed * dt;
+        } else {
+          e.x += (-uy) * e.speed * 0.5 * dt;
+          e.y += ux * e.speed * 0.5 * dt;
+        }
+        e.fireT -= dt;
+        if (e.fireT <= 0 && dist < k.range + 30) {
+          e.fireT = k.fireInterval;
+          spawnEnemyBullet(e.x, e.y, Math.atan2(dy, dx), k.bulletSpeed, e.dmg, e.color);
+        }
+      }
     }
 
     // ===== fx（粒子/弹壳/曳光，对象池）=====
@@ -238,8 +350,107 @@ const Game = (() => {
           life: 0.35 + Math.random() * 0.2,
           color: '#8fa6b8', size: 4
         });
+      },
+      sparks(x, y, color, n) {
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const sp = 90 + Math.random() * 190;
+          fx.spawn({
+            kind: 'spark', x, y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            life: 0.18 + Math.random() * 0.15,
+            color, size: 1.5 + Math.random() * 2
+          });
+        }
+      },
+      burst(x, y, color, n) {
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const sp = 60 + Math.random() * 220;
+          fx.spawn({
+            kind: 'burst', x, y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            life: 0.5 + Math.random() * 0.4,
+            color, size: 2.5 + Math.random() * 4,
+            rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 10
+          });
+        }
+      },
+      floater(x, y, text, kind) {
+        world.floaters.push({
+          x: x + utils.rand(-6, 6), y, text,
+          kind: kind || 'normal', life: 0.7, maxLife: 0.7
+        });
+      },
+      shake(power) {
+        fx.shakePower = Math.min(12, Math.max(fx.shakePower || 0, power));
+      },
+      hitStop(ms) {
+        fx.hitStopMs = Math.max(fx.hitStopMs || 0, ms);
+      },
+      slowmo(factor, sec) {
+        fx.slowmoFactor = factor;
+        fx.slowmoT = sec;
       }
     };
+    fx.shakePower = 0;
+    fx.hitStopMs = 0;
+    fx.slowmoFactor = 1;
+    fx.slowmoT = 0;
+
+    // ===== 战斗结算 =====
+    function damageEnemy(e, dmg, angle) {
+      if (!e || e.dead) return { died: false };
+      e.hp -= dmg;
+      e.flash = 0.08;
+      e.kbvx = Math.cos(angle) * 16;
+      e.kbvy = Math.sin(angle) * 16;
+      fx.sparks(e.x, e.y, e.color, 5);
+      fx.floater(e.x, e.y - e.radius - 8, String(dmg), 'normal');
+      audio.play('hit');
+      if (e.hp <= 0) { killEnemy(e); return { died: true }; }
+      return { died: false };
+    }
+
+    function killEnemy(e) {
+      if (e.dead) return;
+      e.dead = true;
+      const idx = world.enemies.indexOf(e);
+      if (idx >= 0) utils.swapRemove(world.enemies, idx);
+      fx.burst(e.x, e.y, e.color, 8);
+      fx.hitStop(60);
+      audio.play('kill');
+      world.stats.kills++;
+      updateCombo();
+      maybeDrop(e);
+      if (e.scale > 1) fx.slowmo(0.3, 0.25);
+    }
+
+    function damagePlayer(dmg, angle) {
+      const p = world.player;
+      if (p.invuln > 0) return;
+      p.hp -= dmg;
+      p.invuln = 0.4;
+      fx.shake(4);
+      fx.sparks(p.x, p.y, '#ff4d5e', 6);
+      fx.floater(p.x, p.y - 20, '-' + dmg, 'normal');
+      audio.play('hit');
+      if (p.hp <= 0) {
+        p.hp = 0;
+        setScreen('dead');
+      }
+    }
+
+    function maybeDrop(e) {
+      // Task 5 实现掉落
+    }
+
+    function updateCombo() {
+      const now = world.time;
+      if (now - world.stats.comboT < 0.5) world.stats.combo++;
+      else world.stats.combo = 1;
+      world.stats.comboT = now;
+    }
 
     function setScreen(name) { state.screen = name; }
 
@@ -268,6 +479,15 @@ const Game = (() => {
 
     // ---------- update ----------
     function update(dt) {
+      if (state.paused || state.screen === 'dead' || state.screen === 'win') return;
+      if (fx.hitStopMs > 0) {
+        fx.hitStopMs -= dt * 1000;
+        return;
+      }
+      if (fx.slowmoT > 0) {
+        fx.slowmoT -= dt;
+        dt *= fx.slowmoFactor;
+      }
       const p = world.player;
       const mx = input.mouse.x + camera.x - view.w / 2;
       const my = input.mouse.y + camera.y - view.h / 2;
@@ -288,9 +508,14 @@ const Game = (() => {
 
       updateGun(dt);
       updateBullets(dt);
+      updateEnemies(dt);
       updateParticles(dt);
       updateCasings(dt);
       updateTracers(dt);
+      updateFloaters(dt);
+
+      p.invuln -= dt;
+      fx.shakePower *= Math.exp(-6 * dt);
 
       camera.x += (p.x - camera.x) * Math.min(1, 10 * dt);
       camera.y += (p.y - camera.y) * Math.min(1, 10 * dt);
@@ -359,6 +584,7 @@ const Game = (() => {
 
     function updateBullets(dt) {
       const r = world.room;
+      const p = world.player;
       for (let i = world.bullets.length - 1; i >= 0; i--) {
         const b = world.bullets[i];
         b.x += b.vx * dt;
@@ -366,6 +592,26 @@ const Game = (() => {
         b.life -= dt;
         if (b.life <= 0 || b.x < r.x - 40 || b.x > r.w + 40 || b.y < r.y - 40 || b.y > r.h + 40) {
           utils.swapRemove(world.bullets, i);
+          continue;
+        }
+        if (b.friendly) {
+          for (let j = 0; j < world.enemies.length; j++) {
+            const e = world.enemies[j];
+            if (Math.hypot(e.x - b.x, e.y - b.y) < e.radius + b.size) {
+              damageEnemy(e, b.damage, Math.atan2(b.vy, b.vx));
+              if (b.pierce > 0) {
+                b.pierce--;
+              } else {
+                utils.swapRemove(world.bullets, i);
+              }
+              break;
+            }
+          }
+        } else {
+          if (Math.hypot(p.x - b.x, p.y - b.y) < p.radius + b.size) {
+            damagePlayer(b.damage, Math.atan2(b.vy, b.vx));
+            utils.swapRemove(world.bullets, i);
+          }
         }
       }
     }
@@ -410,19 +656,32 @@ const Game = (() => {
       }
     }
 
+    function updateFloaters(dt) {
+      for (let i = world.floaters.length - 1; i >= 0; i--) {
+        const f = world.floaters[i];
+        f.life -= dt;
+        f.y -= 42 * dt;
+        if (f.life <= 0) utils.swapRemove(world.floaters, i);
+      }
+    }
+
     // ---------- render ----------
     function render(alpha) {
       ctx.clearRect(0, 0, view.w, view.h);
       ctx.fillStyle = '#0a0e16';
       ctx.fillRect(0, 0, view.w, view.h);
       ctx.save();
-      ctx.translate(view.w / 2 - camera.x, view.h / 2 - camera.y);
+      const shx = (Math.random() * 2 - 1) * fx.shakePower;
+      const shy = (Math.random() * 2 - 1) * fx.shakePower;
+      ctx.translate(view.w / 2 - camera.x + shx, view.h / 2 - camera.y + shy);
       drawRoom();
       drawScanline();
       drawBullets();
       drawCasings();
       drawParticles();
       drawTracers();
+      drawEnemies();
+      drawFloaters();
       drawPlayer();
       ctx.restore();
       drawHUD();
@@ -497,8 +756,69 @@ const Game = (() => {
           ctx.arc(q.x, q.y, q.size, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1;
+        } else if (q.kind === 'spark') {
+          ctx.globalAlpha = a;
+          ctx.fillStyle = q.color;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.size * a, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else if (q.kind === 'burst') {
+          ctx.save();
+          ctx.translate(q.x, q.y);
+          ctx.rotate(q.rot);
+          ctx.globalAlpha = a;
+          ctx.fillStyle = q.color;
+          ctx.fillRect(-q.size / 2, -q.size / 2, q.size, q.size);
+          ctx.restore();
+          ctx.globalAlpha = 1;
         }
       }
+    }
+
+    function drawEnemies() {
+      for (const e of world.enemies) {
+        const flash = e.flash > 0;
+        ctx.save();
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = flash ? '#ffffff' : e.color;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = flash ? '#ffffff' : e.coreColor;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+        if (e.state === 'telegraph') {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.5 + 0.5 * Math.sin(world.time * 30);
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius + 5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawFloaters() {
+      ctx.textAlign = 'center';
+      for (const f of world.floaters) {
+        const a = utils.clamp(f.life / f.maxLife, 0, 1);
+        ctx.globalAlpha = a;
+        if (f.kind === 'crit') {
+          ctx.fillStyle = '#ffd166';
+          ctx.font = 'bold 20px Consolas, monospace';
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 13px Consolas, monospace';
+        }
+        ctx.fillText(f.text, f.x, f.y);
+      }
+      ctx.globalAlpha = 1;
     }
 
     function drawTracers() {
@@ -573,6 +893,8 @@ const Game = (() => {
         const w = 120 * (1 - g.reloadT / g.stats.reloadTime);
         ctx.fillRect(view.w - 14 - w, view.h - 12, w, 4);
       }
+      ctx.fillStyle = 'rgba(255, 77, 94, 0.7)';
+      ctx.fillText('击杀 ' + world.stats.kills, view.w - 14, 24);
     }
 
     // ---------- main loop ----------
@@ -600,11 +922,19 @@ const Game = (() => {
       onResize();
       last = performance.now();
       raf = requestAnimationFrame(frame);
+      // 临时刷怪便于手动冒烟（Task 6 由房间生成替换）
+      const px = world.player.x, py = world.player.y;
+      world.enemies.push(spawnEnemy('chaser', px + 220, py, 1));
+      world.enemies.push(spawnEnemy('chaser', px - 220, py, 1));
+      world.enemies.push(spawnEnemy('chaser', px, py + 220, 1));
+      world.enemies.push(spawnEnemy('shooter', px + 360, py + 130, 1));
+      world.enemies.push(spawnEnemy('shooter', px - 360, py - 130, 1));
     }
 
     return {
       world, state, camera, input, fx,
       gun, rebuildGun,
+      spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       update, render, start, setScreen,
       VERSION
     };
