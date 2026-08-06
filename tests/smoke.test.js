@@ -232,9 +232,34 @@ test('进入战斗房刷怪，清空后开门', () => {
   assert.ok(combat, '应存在战斗房');
   game.enterRoom(combat.x, combat.y);
   assert.ok(game.world.enemies.length > 0, '战斗房应刷怪');
-  for (const e of [...game.world.enemies]) game.killEnemy(e);
+  while (game.world.enemies.length) {
+    for (const e of [...game.world.enemies]) game.killEnemy(e);
+  }
   game.update(0.1); // 先消耗击杀 hit-stop
   game.update(1 / 60);
   assert.ok(game.world.room.cleared, '清怪后房间应标记 cleared');
   assert.ok(Object.values(game.world.room.doors).some(Boolean), '应有门');
+});
+
+test('分裂怪死亡生成两只小分裂怪', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('splitter', 100, 100, 1);
+  e.hp = 1;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 5, 0, {});
+  const kids = game.world.enemies.filter(x => x.kind === 'splitter_mini');
+  assert.strictEqual(kids.length, 2, '应分裂出 2 只小分裂怪');
+});
+
+test('精英护盾：先破盾再扣血', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('elite', 100, 100, 1);
+  game.world.enemies.push(e);
+  const before = e.hp;
+  game.damageEnemy(e, 10, 0, {});
+  assert.strictEqual(e.hp, before, '有盾时不应扣血');
+  assert.ok(e.shield < e.maxShield, '盾应减少');
+  e.shield = 0;
+  game.damageEnemy(e, 10, 0, {});
+  assert.ok(e.hp < before, '破盾后扣血');
 });

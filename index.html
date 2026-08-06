@@ -251,49 +251,56 @@ const Game = (() => {
         }
       }
       const key = (x, y) => x + ',' + y;
-      const parent = new Map([[key(0, 0), null]]);
-      const pending = cells.filter(c => !(c.x === 0 && c.y === 0));
-      while (pending.length) {
-        let found = -1;
-        for (let i = 0; i < pending.length; i++) {
-          const c = pending[i];
-          if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => parent.has(key(c.x + dx, c.y + dy)))) {
-            found = i;
-            break;
+      const cellSet = new Set(cells.map(c => key(c.x, c.y)));
+      const neighborsOf = c => [[1, 0], [-1, 0], [0, 1], [0, -1]]
+        .map(([dx, dy]) => ({ x: c.x + dx, y: c.y + dy }))
+        .filter(n => cellSet.has(key(n.x, n.y)));
+      const addCell = (x, y) => {
+        const k = key(x, y);
+        if (!cellSet.has(k)) {
+          cellSet.add(k);
+          cells.push({ x, y });
+        }
+      };
+      const connectedToStart = () => {
+        const seen = new Set([key(0, 0)]);
+        const q = [{ x: 0, y: 0 }];
+        while (q.length) {
+          const c = q.shift();
+          for (const n of neighborsOf(c)) {
+            const nk = key(n.x, n.y);
+            if (!seen.has(nk)) { seen.add(nk); q.push(n); }
           }
         }
-        let c;
-        if (found >= 0) {
-          c = pending.splice(found, 1)[0];
-        } else {
-          c = pending.shift();
-          let best = null, bd = 1e9;
-          for (const pk of parent.keys()) {
-            const [pxx, pyy] = pk.split(',').map(Number);
-            const d = Math.abs(pxx - c.x) + Math.abs(pyy - c.y);
-            if (d < bd) { bd = d; best = [pxx, pyy]; }
+        return seen;
+      };
+      // 连通化：把所有房间格连到起点（必要时补中间格）
+      let seen = connectedToStart();
+      for (let guard = 0; guard < 30 && seen.size < cellSet.size; guard++) {
+        let best = null, bestD = 1e9;
+        for (const c of cells) {
+          if (seen.has(key(c.x, c.y))) continue;
+          let dMin = 1e9, near = null;
+          for (const sk of seen) {
+            const [sx, sy] = sk.split(',').map(Number);
+            const d = Math.abs(sx - c.x) + Math.abs(sy - c.y);
+            if (d < dMin) { dMin = d; near = { x: sx, y: sy }; }
           }
-          let cx = c.x, cy = c.y;
-          while (cx !== best[0] || cy !== best[1]) {
-            let sx = 0, sy = 0;
-            if (cx > best[0]) sx = -1; else if (cx < best[0]) sx = 1;
-            if (cy > best[1]) sy = -1; else if (cy < best[1]) sy = 1;
-            const nx = cx + sx, ny = cy + sy;
-            const nk = key(nx, ny);
-            if (!parent.has(nk)) {
-              parent.set(nk, { x: cx, y: cy });
-              cells.push({ x: nx, y: ny });
-            }
-            cx = nx;
-            cy = ny;
-          }
+          if (dMin < bestD) { bestD = dMin; best = { c, near }; }
         }
-        if (!parent.has(key(c.x, c.y))) {
-          const nbrs = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-            .filter(([dx, dy]) => parent.has(key(c.x + dx, c.y + dy)));
-          const [ax, ay] = nbrs[Math.floor(rng() * nbrs.length)];
-          parent.set(key(c.x, c.y), { x: ax, y: ay });
+        if (!best) break;
+        let cx = best.c.x, cy = best.c.y;
+        while (cx !== best.near.x || cy !== best.near.y) {
+          let sx = 0, sy = 0;
+          if (cx > best.near.x) sx = -1;
+          else if (cx < best.near.x) sx = 1;
+          else if (cy > best.near.y) sy = -1;
+          else if (cy < best.near.y) sy = 1;
+          cx += sx;
+          cy += sy;
+          addCell(cx, cy);
         }
+        seen = connectedToStart();
       }
       const rooms = cells.map(c => {
         const doors = { n: false, e: false, s: false, w: false };
@@ -357,6 +364,27 @@ const Game = (() => {
       name: '射手', color: '#ff9f43', coreColor: '#7a3b00',
       hp: 22, radius: 16, speed: 60, dmg: 10,
       behavior: 'keep_distance_shoot', range: 330, fireInterval: 2.0, bulletSpeed: 210
+    },
+    splitter: {
+      name: '分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
+      hp: 16, radius: 14, speed: 85, dmg: 8,
+      behavior: 'splitter', splitKind: 'splitter_mini', splitCount: 2, maxGen: 1
+    },
+    splitter_mini: {
+      name: '小分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
+      hp: 8, radius: 8, speed: 110, dmg: 5,
+      behavior: 'splitter', splitKind: null, splitCount: 0, maxGen: 1
+    },
+    buzzer: {
+      name: '穿梭者', color: '#4dc9ff', coreColor: '#0b3d5e',
+      hp: 12, radius: 12, speed: 0, dmg: 10,
+      behavior: 'buzzer', dashSpeed: 520, dashT: 0.8, waitT: 0.5
+    },
+    elite: {
+      name: '护卫精英', color: '#b06cff', coreColor: '#3d0f73',
+      hp: 90, radius: 30, speed: 55, dmg: 20,
+      behavior: 'elite', shield: 40, maxShield: 40, shieldRegen: 30,
+      dashCooldown: 3, telegraphT: 0.4
     }
   };
 
@@ -543,7 +571,10 @@ const Game = (() => {
         behavior: k.behavior,
         state: 'idle', stateT: 0, flash: 0,
         kbvx: 0, kbvy: 0, hitCd: 0, dead: false,
-        dashAngle: 0, fireT: k.fireInterval || 0
+        dashAngle: 0, fireT: k.fireInterval || 0,
+        shield: k.shield || 0, maxShield: k.maxShield || (k.shield || 0),
+        shieldRegen: k.shieldRegen || 0, shieldDelay: 0,
+        extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0 }
       };
     }
 
@@ -562,6 +593,10 @@ const Game = (() => {
         const e = world.enemies[i];
         e.flash -= dt;
         e.hitCd -= dt;
+        if (e.shieldRegen && e.shield < e.maxShield) {
+          e.shieldDelay -= dt;
+          if (e.shieldDelay <= 0) e.shield = Math.min(e.maxShield, e.shield + e.shieldRegen * dt);
+        }
         if (e.burnT > 0) {
           e.burnT -= dt;
           e.hp -= (e.burnDps || 0) * dt;
@@ -629,6 +664,68 @@ const Game = (() => {
         if (e.fireT <= 0 && dist < k.range + 30) {
           e.fireT = k.fireInterval;
           spawnEnemyBullet(e.x, e.y, Math.atan2(dy, dx), k.bulletSpeed, e.dmg, e.color);
+        }
+      } else if (e.behavior === 'splitter') {
+        e.x += ux * e.speed * dt;
+        e.y += uy * e.speed * dt;
+        if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx));
+      } else if (e.behavior === 'buzzer') {
+        const ex = e.extra;
+        if (e.state === 'idle' || e.state === 'wait') {
+          if (e.state === 'idle') { e.state = 'wait'; e.stateT = 0.4; }
+          if (e.stateT <= 0) {
+            ex.target = { x: utils.rand(120, world.room.w - 120), y: utils.rand(120, world.room.h - 120) };
+            e.state = 'telegraph';
+            e.stateT = 0.3;
+          }
+        } else if (e.state === 'telegraph') {
+          if (e.stateT <= 0) {
+            const tx = ex.target.x - e.x, ty = ex.target.y - e.y;
+            const l = Math.hypot(tx, ty) || 1;
+            ex.dashDirX = tx / l;
+            ex.dashDirY = ty / l;
+            e.state = 'dash';
+            e.stateT = k.dashT;
+          }
+        } else if (e.state === 'dash') {
+          e.x += ex.dashDirX * k.dashSpeed * dt;
+          e.y += ex.dashDirY * k.dashSpeed * dt;
+          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx));
+          if (Math.random() < dt * 30) {
+            fx.spawn({
+              kind: 'spark', x: e.x, y: e.y,
+              vx: utils.rand(-20, 20), vy: utils.rand(-20, 20),
+              life: 0.3, color: e.color, size: 2
+            });
+          }
+          if (e.stateT <= 0) { e.state = 'wait'; e.stateT = k.waitT; }
+        }
+      } else if (e.behavior === 'elite') {
+        if (e.state === 'idle') {
+          if (dist > 200) {
+            e.x += ux * e.speed * dt;
+            e.y += uy * e.speed * dt;
+          } else {
+            e.state = 'telegraph';
+            e.stateT = k.telegraphT;
+          }
+        } else if (e.state === 'telegraph') {
+          if (e.stateT <= 0) {
+            e.dashAngle = Math.atan2(dy, dx);
+            e.state = 'dash';
+            e.stateT = 0.25;
+            for (let a2 = 0; a2 < Math.PI * 2; a2 += Math.PI / 3) {
+              spawnEnemyBullet(e.x, e.y, a2, 240, e.dmg * 0.6, e.color);
+            }
+            audio.play('zap');
+          }
+        } else if (e.state === 'dash') {
+          e.x += Math.cos(e.dashAngle) * 420 * dt;
+          e.y += Math.sin(e.dashAngle) * 420 * dt;
+          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle);
+          if (e.stateT <= 0) { e.state = 'recover'; e.stateT = k.dashCooldown; }
+        } else if (e.state === 'recover') {
+          if (e.stateT <= 0) e.state = 'idle';
         }
       }
     }
@@ -721,6 +818,22 @@ const Game = (() => {
     function damageEnemy(e, dmg, angle, opts) {
       if (!e || e.dead) return { died: false, crit: false };
       const o = opts || {};
+      if (e.shield > 0) {
+        e.shield -= dmg;
+        e.shieldDelay = 3;
+        e.flash = 0.08;
+        fx.sparks(e.x, e.y, '#b06cff', 4);
+        fx.floater(e.x, e.y - e.radius - 8, '盾', 'normal');
+        audio.play('hit');
+        if (e.shield <= 0) {
+          e.shield = 0;
+          fx.burst(e.x, e.y, '#b06cff', 10);
+          audio.play('kill');
+          e.state = 'recover';
+          e.stateT = 0.8;
+        }
+        return { died: false, crit: false };
+      }
       const crit = !!o.critChance && Math.random() < o.critChance;
       const final = crit ? dmg * (o.critMult || 2) : dmg;
       e.hp -= final;
@@ -745,6 +858,15 @@ const Game = (() => {
       e.dead = true;
       const idx = world.enemies.indexOf(e);
       if (idx >= 0) utils.swapRemove(world.enemies, idx);
+      const def = ENEMY_KINDS[e.kind];
+      if (e.behavior === 'splitter' && def.splitKind && (e.extra.gen || 0) < (def.maxGen || 1)) {
+        for (let s = 0; s < (def.splitCount || 2); s++) {
+          const mini = spawnEnemy(def.splitKind, e.x + utils.rand(-12, 12), e.y + utils.rand(-12, 12), 1);
+          mini.extra.gen = (e.extra.gen || 0) + 1;
+          mini.hp = mini.maxHp;
+          world.enemies.push(mini);
+        }
+      }
       fx.burst(e.x, e.y, e.color, 8);
       fx.hitStop(60);
       audio.play('kill');
@@ -776,7 +898,8 @@ const Game = (() => {
       }
       const r = Math.random();
       if (r < 0.03) spawnPickup('part', e.x, e.y, partsEngine.rollPart());
-      else if (r < 0.18) spawnPickup('coin', e.x, e.y, 3);
+      else if (r < 0.09 && world.player.hp < world.player.maxHp * 0.5) spawnPickup('medkit', e.x, e.y, 0);
+      else if (r < 0.24) spawnPickup('coin', e.x, e.y, 3);
     }
 
     function updateCombo() {
@@ -1193,16 +1316,17 @@ const Game = (() => {
       if (room.type === 'combat') {
         const n = Math.min(9, 4 + Math.floor(room.depth * 0.7));
         for (let i = 0; i < n; i++) {
-          const kind = Math.random() < 0.55 ? 'chaser' : 'shooter';
+          const rr = Math.random();
+          const kind = rr < 0.4 ? 'chaser' : rr < 0.7 ? 'shooter' : rr < 0.9 ? 'splitter' : 'buzzer';
           const sc = 1 + room.depth * 0.12 + (Math.random() < 0.2 ? 1 : 0);
           const pos = randSpawnPos();
           world.enemies.push(spawnEnemy(kind, pos.x, pos.y, sc));
         }
       } else if (room.type === 'elite') {
         const pos = randSpawnPos();
-        world.enemies.push(spawnEnemy('chaser', pos.x, pos.y, 2)); // 临时精英（Task 7 替换）
-        world.enemies.push(spawnEnemy('shooter', pos.x - 220, pos.y, 1.4));
-        world.enemies.push(spawnEnemy('shooter', pos.x + 220, pos.y, 1.4));
+        world.enemies.push(spawnEnemy('elite', pos.x, pos.y, 1));
+        world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3));
+        world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3));
       } else if (room.type === 'boss') {
         world.enemies.push(spawnEnemy('chaser', ROOM_W / 2, ROOM_H / 2, 5)); // 临时 Boss（Task 8 替换）
       } else if (room.type === 'treasure') {
@@ -1456,6 +1580,18 @@ const Game = (() => {
           ctx.arc(e.x, e.y, e.radius + 5, 0, Math.PI * 2);
           ctx.stroke();
           ctx.globalAlpha = 1;
+        }
+        if (e.shield > 0) {
+          ctx.strokeStyle = '#b06cff';
+          ctx.lineWidth = 3;
+          ctx.shadowColor = '#b06cff';
+          ctx.shadowBlur = 10;
+          ctx.globalAlpha = 0.6 + 0.4 * Math.sin(world.time * 6);
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius + 8, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.shadowBlur = 0;
         }
         ctx.restore();
       }
@@ -1765,7 +1901,7 @@ const Game = (() => {
 
 if (typeof window !== 'undefined') window.Game = Game;
 
-if (typeof window !== 'undefined' && window.document && window.document.body) {
+if (typeof window !== 'undefined' && window.document && window.document.body && window.document.body.appendChild) {
   const canvas = window.document.getElementById('game');
   if (canvas) {
     const g = Game.createGame(canvas);
