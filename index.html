@@ -52,7 +52,32 @@ const utils = (() => {
     arr[i] = arr[arr.length - 1];
     arr.pop();
   }
-  return { clamp, lerp, rand, randInt, distance, rectsOverlap, mulberry32, swapRemove };
+  function circleRectHit(px, py, r, rect) {
+    const nx = clamp(px, rect.x, rect.x + rect.w);
+    const ny = clamp(py, rect.y, rect.y + rect.h);
+    const dx = px - nx, dy = py - ny;
+    return dx * dx + dy * dy < r * r;
+  }
+  function resolveCircleRect(px, py, r, rect) {
+    const nx = clamp(px, rect.x, rect.x + rect.w);
+    const ny = clamp(py, rect.y, rect.y + rect.h);
+    const dx = px - nx, dy = py - ny;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= r * r) return { x: px, y: py };
+    if (d2 === 0) {
+      const left = px - rect.x, right = rect.x + rect.w - px;
+      const top = py - rect.y, bottom = rect.y + rect.h - py;
+      const m = Math.min(left, right, top, bottom);
+      if (m === left) px = rect.x - r;
+      else if (m === right) px = rect.x + rect.w + r;
+      else if (m === top) py = rect.y - r;
+      else py = rect.y + rect.h + r;
+      return { x: px, y: py };
+    }
+    const d = Math.sqrt(d2);
+    return { x: nx + (dx / d) * r, y: ny + (dy / d) * r };
+  }
+  return { clamp, lerp, rand, randInt, distance, rectsOverlap, mulberry32, swapRemove, circleRectHit, resolveCircleRect };
 })();
 
 // ===== world =====
@@ -70,7 +95,7 @@ const Game = (() => {
       smg_body: { id: 'smg_body', slot: 'body', name: '冲锋枪身', rarity: 1, color: '#7ef29a', desc: '高射速压制',
         base: { fireRate: 14, damage: 9, magSize: 25, reloadTime: 1.2, spread: 0.09 } },
       shotgun_body: { id: 'shotgun_body', slot: 'body', name: '霰弹枪身', rarity: 2, color: '#4dc9ff', desc: '多弹片近战',
-        base: { fireRate: 2, damage: 10, magSize: 8, reloadTime: 1.5, spread: 0.22, pellet: 6 } },
+        base: { fireRate: 2, damage: 8, magSize: 8, reloadTime: 1.5, spread: 0.22, pellet: 6 } },
       sniper_body: { id: 'sniper_body', slot: 'body', name: '狙击枪身', rarity: 3, color: '#b06cff', desc: '高伤慢速',
         base: { fireRate: 1.1, damage: 65, magSize: 4, reloadTime: 1.6, spread: 0.005, pierce: 1 } },
       heavy_body: { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', desc: '大弹鼓',
@@ -238,8 +263,8 @@ const Game = (() => {
       const lv = layer || 1;
       const W = lv >= 2 ? 4 : 3;
       const H = lv >= 2 ? 4 : 3;
-      const fillP = lv >= 2 ? 0.7 : 0.9;
-      const minRooms = lv >= 2 ? 9 : 6;
+      const fillP = lv >= 2 ? 0.85 : 0.95;
+      const minRooms = lv >= 2 ? 12 : 8;
       const cells = [];
       for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
@@ -352,6 +377,7 @@ const Game = (() => {
       let ti = 0;
       if (others[ti]) { others[ti].type = 'treasure'; ti++; }
       if (others[ti]) { others[ti].type = 'shop'; ti++; }
+      if (others[ti]) { others[ti].type = 'coin'; ti++; }
       if (others[ti]) { others[ti].type = 'elite'; ti++; }
       return { rooms, start: { x: 0, y: 0 }, boss: { x: boss.x, y: boss.y }, gridW: W, gridH: H };
     }
@@ -362,7 +388,7 @@ const Game = (() => {
   const PART_DEFAULTS = { body: 'pistol_body', ammo: 'standard_ammo', mod: 'none_mod' };
   const MINIMAP_COLORS = {
     start: '#35e0ff', combat: 'rgba(122, 152, 178, 0.75)',
-    treasure: '#b06cff', shop: '#ffd166',
+    treasure: '#b06cff', shop: '#ffd166', coin: '#ffe14d',
     elite: '#ff9f43', boss: '#ff3d81'
   };
   const LAYER_ACCENTS = ['#35e0ff', '#ffb347'];
@@ -372,37 +398,41 @@ const Game = (() => {
     chaser: {
       name: '冲锋者', color: '#ff4d5e', coreColor: '#7a0d1e',
       hp: 34, radius: 18, speed: 70, dmg: 18,
-      behavior: 'chase_telegraph_dash', dashSpeed: 460, telegraphT: 0.45, cooldown: 1.6
+      behavior: 'chase_telegraph_dash', dashSpeed: 520, telegraphT: 0.3, cooldown: 1.1,
+      engageRange: 340, shardCount: 3
     },
     shooter: {
       name: '射手', color: '#ff9f43', coreColor: '#7a3b00',
       hp: 22, radius: 16, speed: 60, dmg: 10,
-      behavior: 'keep_distance_shoot', range: 330, fireInterval: 2.0, bulletSpeed: 210
+      behavior: 'keep_distance_shoot', range: 330, fireInterval: 1.4, bulletSpeed: 260,
+      burst: 3, burstSpread: 0.09
     },
     splitter: {
       name: '分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
-      hp: 16, radius: 14, speed: 85, dmg: 8,
-      behavior: 'splitter', splitKind: 'splitter_mini', splitCount: 2, maxGen: 1
+      hp: 16, radius: 14, speed: 110, dmg: 8,
+      behavior: 'splitter', splitKind: 'splitter_mini', splitCount: 2, maxGen: 1,
+      spitRange: 150, spitInterval: 1.6
     },
     splitter_mini: {
       name: '小分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
-      hp: 8, radius: 8, speed: 110, dmg: 5,
+      hp: 8, radius: 8, speed: 130, dmg: 5,
       behavior: 'splitter', splitKind: null, splitCount: 0, maxGen: 1
     },
     buzzer: {
       name: '穿梭者', color: '#4dc9ff', coreColor: '#0b3d5e',
       hp: 12, radius: 12, speed: 0, dmg: 10,
-      behavior: 'buzzer', dashSpeed: 520, dashT: 0.8, waitT: 0.5
+      behavior: 'buzzer', dashSpeed: 600, dashT: 0.7, waitT: 0.35,
+      dashShots: 2, dashShotSpeed: 360
     },
     elite: {
       name: '护卫精英', color: '#b06cff', coreColor: '#3d0f73',
       hp: 90, radius: 30, speed: 55, dmg: 20,
       behavior: 'elite', shield: 40, maxShield: 40, shieldRegen: 30,
-      dashCooldown: 3, telegraphT: 0.4
+      dashCooldown: 2.2, telegraphT: 0.35
     },
     boss: {
       name: '机械核心', color: '#ff3d81', coreColor: '#5c0a2e',
-      hp: 420, radius: 58, speed: 38, dmg: 24,
+      hp: 840, radius: 58, speed: 38, dmg: 24,
       behavior: 'boss', ringSegs: 14, rotSpeed: 0.6,
       burstCd: 1.8, summonCd: 10
     }
@@ -576,6 +606,7 @@ const Game = (() => {
       shopPrices: [],
       shopPos: null,
       chest: null,
+      coinPile: null,
       mapInfo: { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 },
       transition: { active: false, t: 0, rx: 0, ry: 0 },
       hpDelay: 100,
@@ -655,7 +686,7 @@ const Game = (() => {
         behavior: k.behavior,
         state: 'idle', stateT: 0, flash: 0,
         kbvx: 0, kbvy: 0, hitCd: 0, dead: false,
-        dashAngle: 0, fireT: k.fireInterval || 0,
+        dashAngle: 0, fireT: k.fireInterval || 0, attackT: 0,
         shield: k.shield || 0, maxShield: k.maxShield || (k.shield || 0),
         shieldRegen: k.shieldRegen || 0, shieldDelay: 0,
         extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0 },
@@ -706,6 +737,9 @@ const Game = (() => {
         updateEnemyAI(e, dt);
         e.x = utils.clamp(e.x, e.radius, world.room.w - e.radius);
         e.y = utils.clamp(e.y, e.radius, world.room.h - e.radius);
+        const resE = resolveObstaclesFor(e.x, e.y, e.radius);
+        e.x = resE.x;
+        e.y = resE.y;
       }
     }
 
@@ -724,9 +758,21 @@ const Game = (() => {
         if (e.state === 'idle') {
           e.x += ux * spd * dt;
           e.y += uy * spd * dt;
-          if (dist < 260) { e.state = 'telegraph'; e.stateT = k.telegraphT; }
+          if (dist < (k.engageRange || 260)) { e.state = 'telegraph'; e.stateT = k.telegraphT; }
         } else if (e.state === 'telegraph') {
-          if (e.stateT <= 0) { e.state = 'dash'; e.dashAngle = Math.atan2(dy, dx); e.stateT = 0.35; }
+          if (e.stateT <= 0) {
+            e.state = 'dash';
+            e.dashAngle = Math.atan2(dy, dx);
+            e.stateT = 0.35;
+            const shards = k.shardCount || 0;
+            for (let s2 = 0; s2 < shards; s2++) {
+              spawnEnemyBullet(
+                e.x, e.y,
+                Math.atan2(dy, dx) + (s2 - (shards - 1) / 2) * 0.16,
+                300, e.dmg * 0.5, e.color
+              );
+            }
+          }
         } else if (e.state === 'dash') {
           e.x += Math.cos(e.dashAngle) * k.dashSpeed * dt;
           e.y += Math.sin(e.dashAngle) * k.dashSpeed * dt;
@@ -750,11 +796,26 @@ const Game = (() => {
         e.fireT -= dt;
         if (e.fireT <= 0 && dist < k.range + 30) {
           e.fireT = k.fireInterval;
-          spawnEnemyBullet(e.x, e.y, Math.atan2(dy, dx), k.bulletSpeed, e.dmg, e.color);
+          const burst = k.burst || 1;
+          const baseA = Math.atan2(dy, dx);
+          for (let b2 = 0; b2 < burst; b2++) {
+            spawnEnemyBullet(
+              e.x, e.y,
+              baseA + (b2 - (burst - 1) / 2) * (k.burstSpread || 0.06),
+              k.bulletSpeed, e.dmg, e.color
+            );
+          }
         }
       } else if (e.behavior === 'splitter') {
         e.x += ux * e.speed * dt;
         e.y += uy * e.speed * dt;
+        e.attackT -= dt;
+        if (e.attackT <= 0 && dist < (k.spitRange || 150)) {
+          e.attackT = k.spitInterval || 1.6;
+          const baseA = Math.atan2(dy, dx);
+          spawnEnemyBullet(e.x, e.y, baseA - 0.25, 190, e.dmg * 0.7, e.color);
+          spawnEnemyBullet(e.x, e.y, baseA + 0.25, 190, e.dmg * 0.7, e.color);
+        }
         if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx));
       } else if (e.behavior === 'buzzer') {
         const ex = e.extra;
@@ -773,6 +834,15 @@ const Game = (() => {
             ex.dashDirY = ty / l;
             e.state = 'dash';
             e.stateT = k.dashT;
+            const shots = k.dashShots || 0;
+            const baseA = Math.atan2(dy, dx);
+            for (let s2 = 0; s2 < shots; s2++) {
+              spawnEnemyBullet(
+                e.x, e.y,
+                baseA + (s2 - (shots - 1) / 2) * 0.15,
+                k.dashShotSpeed || 360, e.dmg * 0.5, e.color
+              );
+            }
           }
         } else if (e.state === 'dash') {
           e.x += ex.dashDirX * k.dashSpeed * dt;
@@ -1124,6 +1194,7 @@ const Game = (() => {
       world.shopPos = null;
       world.chest = null;
       world.chestPart = null;
+      world.coinPile = null;
       world.mapInfo = { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 };
       world.transition.active = false;
       world.hpDelay = 100;
@@ -1160,6 +1231,8 @@ const Game = (() => {
 
     // ---------- input ----------
     function onKeyDown(e) {
+      const GAME_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyR', 'KeyE', 'KeyB', 'Digit1', 'Digit2', 'Escape', 'Enter', 'Tab'];
+      if (GAME_KEYS.includes(e.code)) e.preventDefault();
       if (!e.repeat) { input.keys.add(e.code); input.pressedSet.add(e.code); }
     }
     function onKeyUp(e) { input.keys.delete(e.code); }
@@ -1170,6 +1243,7 @@ const Game = (() => {
     }
     function onMouseDown(e) {
       if (e.button !== 0) return;
+      if (canvas.focus) canvas.focus();
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
@@ -1210,8 +1284,8 @@ const Game = (() => {
 
     // ---------- update ----------
     function update(dt) {
-      if (!input.frameHandled) {
-        input.frameHandled = true;
+      input.frameHandled = false;
+      if (input.pressedSet.size) {
         if (input.pressedSet.has('Escape')) {
           if (ui.panel !== 'none') {
             closePanel();
@@ -1238,12 +1312,21 @@ const Game = (() => {
                 utils.distance(p.x, p.y, world.chest.x, world.chest.y) < 100) {
               world.chestPart = partsEngine.rollPart();
               openPanel('chest');
+            } else if (world.coinPile && !world.coinPile.collected &&
+                utils.distance(p.x, p.y, world.coinPile.x, world.coinPile.y) < 90) {
+              world.coins += world.coinPile.amount;
+              world.coinPile.collected = true;
+              fx.floater(p.x, p.y - 30, '+' + world.coinPile.amount + ' 金币', 'crit');
+              audio.play('chest');
             } else if (world.shopPos && world.shopOffers.length &&
                 utils.distance(p.x, p.y, world.shopPos.x, world.shopPos.y) < 120) {
               openPanel('shop');
             }
           }
         }
+        if (input.pressedSet.has('Digit1')) world.activeGun = 0;
+        if (input.pressedSet.has('Digit2')) world.activeGun = 1;
+        input.pressedSet.clear();
       }
       if (world.transition.active) {
         world.transition.t += dt;
@@ -1337,6 +1420,9 @@ const Game = (() => {
       input.mouse.downPrev = input.mouse.down;
       p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
       p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
+      const resP = resolveObstaclesFor(p.x, p.y, p.radius);
+      p.x = resP.x;
+      p.y = resP.y;
 
       updateGun(dt);
       updateBullets(dt);
@@ -1350,6 +1436,7 @@ const Game = (() => {
       updatePickups(dt);
       updateChains(dt);
       updateDashGhosts(dt);
+      updateImpactMarks(dt);
 
       p.invuln -= dt;
       fx.shakePower *= Math.exp(-6 * dt);
@@ -1431,8 +1518,6 @@ const Game = (() => {
         world.activeGun = (world.activeGun + (input.wheelDelta > 0 ? 1 : -1) + 2) % 2;
         input.wheelDelta = 0;
       }
-      if (input.pressedSet.has('Digit1')) world.activeGun = 0;
-      if (input.pressedSet.has('Digit2')) world.activeGun = 1;
 
       const g = gun();
       g.cooldown -= dt;
@@ -1487,6 +1572,20 @@ const Game = (() => {
         b.y += b.vy * dt;
         b.life -= dt;
         if (b.life <= 0 || b.x < r.x - 40 || b.x > r.w + 40 || b.y < r.y - 40 || b.y > r.h + 40) {
+          utils.swapRemove(world.bullets, i);
+          continue;
+        }
+        const obs = world.room.obstacles || [];
+        let hitObs = false;
+        for (const o of obs) {
+          if (utils.circleRectHit(b.x, b.y, b.size, o)) {
+            fx.sparks(b.x, b.y, '#8fa6b8', 4);
+            world.impactMarks.push({ x: b.x, y: b.y, life: 2.5, color: b.color });
+            hitObs = true;
+            break;
+          }
+        }
+        if (hitObs) {
           utils.swapRemove(world.bullets, i);
           continue;
         }
@@ -1654,6 +1753,13 @@ const Game = (() => {
       }
     }
 
+    function updateImpactMarks(dt) {
+      for (let i = world.impactMarks.length - 1; i >= 0; i--) {
+        world.impactMarks[i].life -= dt;
+        if (world.impactMarks[i].life <= 0) utils.swapRemove(world.impactMarks, i);
+      }
+    }
+
     // ===== 房间流程 =====
     function startMap(seed, layer) {
       world.layer = layer || 1;
@@ -1674,10 +1780,51 @@ const Game = (() => {
     }
 
     function randSpawnPos() {
-      return {
-        x: utils.rand(120, world.room.w - 120),
-        y: utils.rand(120, world.room.h - 120)
-      };
+      for (let tries = 0; tries < 30; tries++) {
+        const x = utils.rand(120, world.room.w - 120);
+        const y = utils.rand(120, world.room.h - 120);
+        const obs = world.room.obstacles || [];
+        let ok = true;
+        for (const o of obs) {
+          if (utils.rectsOverlap(o.x - 40, o.y - 40, o.w + 80, o.h + 80, x - 20, y - 20, 40, 40)) { ok = false; break; }
+        }
+        if (ok) return { x, y };
+      }
+      return { x: utils.rand(120, world.room.w - 120), y: utils.rand(120, world.room.h - 120) };
+    }
+
+    function genObstacles(room) {
+      const count = room.type === 'boss' ? 5 : room.type === 'elite' ? 3 : 2;
+      const list = [];
+      for (let i = 0; i < count; i++) {
+        for (let tries = 0; tries < 24; tries++) {
+          const w = utils.randInt(60, 130);
+          const h = utils.randInt(40, 90);
+          const x = utils.rand(140, ROOM_W - 140 - w);
+          const y = utils.rand(140, ROOM_H - 140 - h);
+          const rect = { x, y, w, h };
+          const cx = ROOM_W / 2, cy = ROOM_H / 2;
+          if (utils.rectsOverlap(rect.x, rect.y, rect.w, rect.h, cx - 100, cy - 100, 200, 200)) continue;
+          if (room.doors.n && rect.y < 80) continue;
+          if (room.doors.s && rect.y + rect.h > ROOM_H - 80) continue;
+          if (room.doors.w && rect.x < 80) continue;
+          if (room.doors.e && rect.x + rect.w > ROOM_W - 80) continue;
+          if (list.some(o => utils.rectsOverlap(o.x - 30, o.y - 30, o.w + 60, o.h + 60, rect.x, rect.y, rect.w, rect.h))) continue;
+          list.push(rect);
+          break;
+        }
+      }
+      return list;
+    }
+
+    function resolveObstaclesFor(x, y, r) {
+      const obs = world.room.obstacles || [];
+      for (const o of obs) {
+        const res = utils.resolveCircleRect(x, y, r, o);
+        x = res.x;
+        y = res.y;
+      }
+      return { x, y };
     }
 
     function enterRoom(rx, ry) {
@@ -1694,6 +1841,7 @@ const Game = (() => {
       world.tracers.length = 0;
       world.chest = null;
       world.chestPart = null;
+      world.coinPile = null;
       world.shopOffers = [];
       world.shopPrices = [];
       world.shopPos = null;
@@ -1703,9 +1851,10 @@ const Game = (() => {
       world.player.y = ROOM_H / 2;
       if (room.spawned || room.cleared) return;
       room.spawned = true;
+      room.obstacles = genObstacles(room);
       if (room.type === 'combat') {
         const layerBonus = (world.layer - 1) * 2;
-        const n = Math.min(10, 4 + Math.floor(room.depth * 0.7) + layerBonus);
+        const n = Math.min(18, (4 + Math.floor(room.depth * 0.7) + layerBonus) * 2);
         for (let i = 0; i < n; i++) {
           const rr = Math.random();
           const kind = rr < 0.4 ? 'chaser' : rr < 0.7 ? 'shooter' : rr < 0.9 ? 'splitter' : 'buzzer';
@@ -1723,10 +1872,17 @@ const Game = (() => {
         world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2, 1 + (world.layer - 1) * 0.4));
       } else if (room.type === 'treasure') {
         world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
+      } else if (room.type === 'coin') {
+        world.coinPile = {
+          x: ROOM_W / 2, y: ROOM_H / 2,
+          amount: utils.randInt(1, Math.max(1, world.stats.kills)),
+          collected: false
+        };
       } else if (room.type === 'shop') {
         world.shopPos = { x: ROOM_W / 2 + 260, y: ROOM_H / 2 };
         world.shopOffers = [partsEngine.rollPart(), partsEngine.rollPart(), partsEngine.rollPart()];
-        world.shopPrices = [20, 40, 80];
+        const PRICES = [10, 20, 40, 80, 150];
+        world.shopPrices = world.shopOffers.map(o => PRICES[o.rarity] || 40);
       }
     }
 
@@ -1834,7 +1990,7 @@ const Game = (() => {
         }
       } else if (ui.panel === 'chest') {
         const part = world.chestPart;
-        if (part) rows.push({ x: x0, y: py + 110, w: panelW - 32, h: 44, part, price: null, action: 'take' });
+        if (part) rows.push({ x: x0, y: py + 96, w: panelW - 32, h: 44, part, price: null, action: 'take' });
       }
       ui.items = rows;
       ui.maxScroll = Math.max(0, rowCount * 52 - (panelMetrics(rowCount).panelH - 158));
@@ -1899,8 +2055,10 @@ const Game = (() => {
       drawRoom();
       drawScanline();
       drawDoors();
+      drawObstacles();
       drawBullets();
       drawCasings();
+      drawImpactMarks();
       drawParticles();
       drawTracers();
       drawChains();
@@ -2296,6 +2454,21 @@ const Game = (() => {
         ctx.restore();
         if (utils.distance(p.x, p.y, s.x, s.y) < 120) drawHint(s.x, s.y - 26, 'E 商店');
       }
+      if (world.coinPile && !world.coinPile.collected) {
+        const c = world.coinPile;
+        ctx.fillStyle = 'rgba(255,225,77,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y + 8, 22, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + world.time * 1.2;
+          ctx.fillStyle = '#ffd166';
+          ctx.beginPath();
+          ctx.arc(c.x + Math.cos(a) * 16, c.y + Math.sin(a) * 7, 3.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (utils.distance(p.x, p.y, c.x, c.y) < 90) drawHint(c.x, c.y - 30, 'E 收集金币');
+      }
     }
 
     function drawHint(x, y, text) {
@@ -2418,6 +2591,38 @@ const Game = (() => {
       ctx.shadowBlur = 0;
     }
 
+    function drawObstacles() {
+      const obs = world.room.obstacles || [];
+      const ac = accent();
+      for (const o of obs) {
+        ctx.fillStyle = '#101826';
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.strokeStyle = ac;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = ac;
+        ctx.shadowBlur = 8;
+        ctx.strokeRect(o.x, o.y, o.w, o.h);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(o.x + 5, o.y + 5, o.w - 10, o.h - 10);
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
+        ctx.fillRect(o.x + 3, o.y + 3, o.w - 6, 5);
+      }
+    }
+
+    function drawImpactMarks() {
+      for (const m of world.impactMarks) {
+        const a = utils.clamp(m.life / 2.5, 0, 1);
+        ctx.globalAlpha = a * 0.5;
+        ctx.fillStyle = m.color;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
     function drawPlayer() {
       const p = world.player;
       const g = gun();
@@ -2536,6 +2741,15 @@ const Game = (() => {
       for (const room of world.map.rooms) {
         const px = mx + room.x * (cell + gap);
         const py = my + room.y * (cell + gap);
+        if (room.type === 'boss' && !room.visited) {
+          const pulse = 0.5 + 0.5 * Math.sin(world.time * 4);
+          ctx.fillStyle = 'rgba(255, 61, 129, ' + (0.2 + 0.25 * pulse) + ')';
+          ctx.fillRect(px, py, cell, cell);
+          ctx.strokeStyle = '#ff3d81';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px - 1.5, py - 1.5, cell + 3, cell + 3);
+          continue;
+        }
         const color = room.type === 'start' ? accent() : (MINIMAP_COLORS[room.type] || '#666666');
         ctx.fillStyle = room.visited ? color : 'rgba(255,255,255,0.14)';
         ctx.fillRect(px, py, cell, cell);
@@ -2673,6 +2887,8 @@ const Game = (() => {
     }
 
     function start() {
+      if (canvas.setAttribute) canvas.setAttribute('tabindex', '0');
+      if (canvas.focus) canvas.focus();
       if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);

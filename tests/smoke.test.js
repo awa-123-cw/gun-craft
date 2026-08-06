@@ -458,6 +458,59 @@ test('背包过多时可滚动且不越界', () => {
   assert.ok(game.ui.items[0].y < firstTop0, '滚动后列表应上移');
 });
 
+test('Boss 血量翻倍且普通战斗房怪物量翻倍', () => {
+  const { game } = makeGame();
+  const b = game.spawnEnemy('boss', 750, 550, 1);
+  assert.strictEqual(b.maxHp, 840, 'Boss 血量应为 840');
+  game.startMap(777);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  assert.ok(game.world.enemies.length >= 8, '普通战斗房至少 8 只怪');
+});
+
+test('障碍物阻挡子弹与角色', () => {
+  const { game } = makeGame();
+  game.world.room.obstacles = [{ x: 700, y: 500, w: 100, h: 60 }];
+  game.world.bullets.push({ x: 690, y: 530, vx: 1000, vy: 0, damage: 1, friendly: true, life: 5, size: 3, trail: [] });
+  game.update(1 / 120);
+  assert.ok(!game.world.bullets.some(b => Math.abs(b.x - 690) < 1 && Math.abs(b.y - 530) < 1), '子弹应被障碍物阻挡');
+  game.world.player.x = 690;
+  game.world.player.y = 530;
+  game.update(1 / 120);
+  const r = game.world.room.obstacles[0];
+  const inside = game.world.player.x + game.world.player.radius > r.x &&
+    game.world.player.x - game.world.player.radius < r.x + r.w &&
+    game.world.player.y + game.world.player.radius > r.y &&
+    game.world.player.y - game.world.player.radius < r.y + r.h;
+  assert.ok(!inside, '玩家不能穿过障碍物');
+});
+
+test('金币房：进入生成金币堆且数量在 1~击杀数之间', () => {
+  const { game } = makeGame();
+  game.world.stats.kills = 5;
+  game.startMap(999);
+  const coinRoom = game.world.map.rooms.find(r => r.type === 'coin');
+  assert.ok(coinRoom, '应存在金币房');
+  game.enterRoom(coinRoom.x, coinRoom.y);
+  assert.ok(game.world.coinPile && game.world.coinPile.amount >= 1 && game.world.coinPile.amount <= 5,
+    '金币数量应在 1~击杀数之间');
+  const before = game.world.coins;
+  game.input.pressedSet.add('KeyE');
+  game.update(1 / 120);
+  game.update(1 / 120);
+  assert.ok(game.world.coins > before, '按 E 应收集金币堆');
+});
+
+test('宝箱界面部件行位于面板内', () => {
+  const { game, Game } = makeGame();
+  game.world.chestPart = Game.partsEngine.rollPart();
+  game.openPanel('chest');
+  const m = game.panelMetrics();
+  for (const row of game.ui.items) {
+    assert.ok(row.y >= m.py && row.y + row.h <= m.py + m.panelH, '宝箱部件行应在面板内');
+  }
+});
+
 test('屏幕状态机与重新开始', () => {
   const { game } = makeGame();
   assert.strictEqual(game.state.screen, 'start');
