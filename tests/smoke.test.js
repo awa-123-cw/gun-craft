@@ -259,7 +259,11 @@ test('词条随稀有度增加且装备后影响数值', () => {
   assert.ok(aff.length >= 2 && aff.length <= 3, '史诗部件至少 2 条词条');
   const part = Game.partsEngine.rollPart();
   game.equipPart(part);
-  assert.strictEqual(game.gun().parts[part.slot].id, part.id, '部件应装备到对应槽');
+  if (part.slot === 'armor') {
+    assert.strictEqual(game.world.armor.id, part.id, '护甲应装备到护甲栏');
+  } else {
+    assert.strictEqual(game.gun().parts[part.slot].id, part.id, '部件应装备到对应槽');
+  }
   assert.ok(game.gun().stats.damage > 0);
 });
 
@@ -393,7 +397,7 @@ test('装备新部件时旧部件自动卸下回背包', () => {
 test('拼装面板标记已装备部件（loadout）', () => {
   const { game } = makeGame();
   game.openPanel('parts');
-  assert.strictEqual(game.ui.loadout.length, 3, '应展示三槽当前装备');
+  assert.strictEqual(game.ui.loadout.length, 4, '应展示四槽当前装备（含护甲）');
   assert.ok(game.ui.loadout.every(x => x.part && x.slot), '每槽包含部件信息');
 });
 
@@ -606,6 +610,76 @@ test('传送门跨房间保留', () => {
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
   assert.ok(game.world.portal, '进入其他房间后传送门应保留');
+});
+
+test('初始房红色 NPC 对话与右键关闭', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  assert.ok(game.world.startNpc, '初始房应有 NPC');
+  game.world.player.x = game.world.startNpc.x + 20;
+  game.world.player.y = game.world.startNpc.y;
+  game.input.pressedSet.add('KeyE');
+  game.update(1 / 120);
+  assert.ok(game.ui.chat && game.ui.chat.lines[0].includes('感谢你游玩'), '应显示作者对话');
+  game.closeChat();
+  assert.strictEqual(game.ui.chat, null, '关闭后聊天框应消失');
+});
+
+test('护甲吸收伤害并随时间恢复', () => {
+  const { game } = makeGame();
+  game.equipPart({ id: 'standard_armor', slot: 'armor', name: '标准护甲', rarity: 1, color: '#35e0ff', affixes: [] });
+  assert.strictEqual(game.world.player.maxArmor, 50, '标准护甲护甲值 50');
+  game.world.player.hp = 100;
+  game.damagePlayer(20, 0);
+  assert.strictEqual(game.world.player.hp, 100, '护甲应完全吸收 20 伤害');
+  assert.ok(game.world.player.armor < 50, '护甲应减少');
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 等无敌帧结束
+  game.damagePlayer(60, 0);
+  assert.ok(game.world.player.hp < 100, '护甲耗尽后扣血');
+  const armorAfter = game.world.player.armor;
+  for (let i = 0; i < 120; i++) game.update(1 / 120);
+  assert.ok(game.world.player.armor > armorAfter + 4, '护甲应随时间恢复');
+});
+
+test('锻造房 NPC 与强化/重组', () => {
+  const { game, Game } = makeGame();
+  game.startMap(999);
+  const forge = game.world.map.rooms.find(r => r.type === 'forge');
+  assert.ok(forge, '应存在锻造房');
+  game.enterRoom(forge.x, forge.y);
+  assert.ok(game.world.forgeNpc, '锻造房应有 NPC');
+  game.world.player.x = game.world.forgeNpc.x + 20;
+  game.world.player.y = game.world.forgeNpc.y;
+  game.input.pressedSet.add('KeyE');
+  game.update(1 / 120);
+  assert.ok(game.ui.chat && game.ui.chat.lines[0].includes('锻造师'), '首次应显示锻造师对话');
+  game.closeChat();
+  assert.strictEqual(game.ui.panel, 'forgeMenu', '关闭对话后应弹出强化/重组选项');
+  const part = {
+    id: 'pistol_body', slot: 'body', name: '标准枪身', rarity: 0, color: '#35e0ff',
+    affixes: [{ stat: 'damage', label: '伤害', pct: 0.12, value: 0.12, enhanced: false, rerolls: 0 }]
+  };
+  game.world.inventory.push(part);
+  game.openPanel('forgeMenu');
+  const enhanceBtn = game.ui.items.find(r => r.action === 'enhanceMenu');
+  game.uiClick(enhanceBtn.x + 5, enhanceBtn.y + 5);
+  assert.strictEqual(game.ui.panel, 'forgeList', '应进入部件列表');
+  const partRow = game.ui.items.find(r => r.part === part);
+  game.uiClick(partRow.x + 5, partRow.y + 5);
+  assert.strictEqual(game.ui.panel, 'forgeAffix', '应进入词条列表');
+  game.world.coins = 100;
+  const affRow = game.ui.items.find(r => r.affix === part.affixes[0]);
+  game.uiClick(affRow.x + 5, affRow.y + 5);
+  assert.ok(part.affixes[0].enhanced, '词条应被强化');
+  assert.ok(part.affixes[0].value > 0.12, '强化后数值应提升');
+  game.openPanel('forgeMenu');
+  const rerollBtn = game.ui.items.find(r => r.action === 'rerollMenu');
+  game.uiClick(rerollBtn.x + 5, rerollBtn.y + 5);
+  const partRow2 = game.ui.items.find(r => r.part === part);
+  game.uiClick(partRow2.x + 5, partRow2.y + 5);
+  const affRow2 = game.ui.items.find(r => r.affix === part.affixes[0]);
+  game.uiClick(affRow2.x + 5, affRow2.y + 5);
+  assert.strictEqual(part.affixes[0].rerolls, 1, '重组次数应 +1');
 });
 
 test('障碍物阻挡子弹与角色', () => {

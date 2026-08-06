@@ -130,6 +130,18 @@ const Game = (() => {
         base: { slowPct: 0.3, slowT: 1.2 } },
       stabilizer_mod: { id: 'stabilizer_mod', slot: 'mod', name: '稳定器', rarity: 0, color: '#cfd8ff', desc: '散布x0.5，换弹-20%',
         base: { spreadMul: 0.5, reloadMul: 0.8 } }
+    },
+    armor: {
+      light_armor: { id: 'light_armor', slot: 'armor', name: '轻型护甲', rarity: 0, color: '#7ef29a', desc: '护甲+25，移速+8%',
+        base: { armor: 25, speedMul: 1.08 } },
+      standard_armor: { id: 'standard_armor', slot: 'armor', name: '标准护甲', rarity: 1, color: '#35e0ff', desc: '护甲+50，受伤-10%',
+        base: { armor: 50, dmgMul: 0.9 } },
+      heavy_armor: { id: 'heavy_armor', slot: 'armor', name: '重型护甲', rarity: 2, color: '#b06cff', desc: '护甲+80，击退-50%',
+        base: { armor: 80, kbMul: 0.5 } },
+      energy_armor: { id: 'energy_armor', slot: 'armor', name: '能量护甲', rarity: 3, color: '#ffb347', desc: '护甲+40，恢复×2',
+        base: { armor: 40, regenMul: 2 } },
+      regen_armor: { id: 'regen_armor', slot: 'armor', name: '再生护甲', rarity: 4, color: '#ff4d5e', desc: '护甲+60，每秒回1HP',
+        base: { armor: 60, hpRegen: 1 } }
     }
   };
 
@@ -137,6 +149,7 @@ const Game = (() => {
   const partsEngine = {
     rarityNames: ['普通', '优秀', '稀有', '史诗', '传说'],
     rarityColors: ['#cfd8d8', '#7ef29a', '#4dc9ff', '#b06cff', '#ff8f3d'],
+    enhancePrices: [30, 60, 120, 240, 500],
     affixPool: [
       { stat: 'fireRate', label: '射速', pct: 0.08 },
       { stat: 'damage', label: '伤害', pct: 0.12 },
@@ -144,7 +157,10 @@ const Game = (() => {
       { stat: 'reloadTime', label: '换弹', pct: -0.12 },
       { stat: 'pierce', label: '穿透', flat: 1 },
       { stat: 'critChance', label: '暴击率', flat: 0.06 },
-      { stat: 'spread', label: '散布', pct: -0.20 }
+      { stat: 'spread', label: '散布', pct: -0.20 },
+      { stat: 'armor', label: '护甲', flat: 10 },
+      { stat: 'armorRegen', label: '护甲恢复', flat: 3 },
+      { stat: 'hpRegen', label: '生命恢复', flat: 0.6 }
     ],
     rollRarity() {
       const weights = [40, 30, 18, 9, 3];
@@ -161,12 +177,18 @@ const Game = (() => {
       const pool = partsEngine.affixPool.slice();
       const out = [];
       for (let i = 0; i < n && pool.length; i++) {
-        out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+        const src = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+        out.push({
+          stat: src.stat, label: src.label,
+          pct: src.pct, flat: src.flat,
+          value: src.pct !== undefined ? src.pct : src.flat,
+          enhanced: false, rerolls: 0
+        });
       }
       return out;
     },
     rollPart() {
-      const slots = ['body', 'ammo', 'mod'];
+      const slots = ['body', 'ammo', 'mod', 'armor'];
       const slot = slots[Math.floor(Math.random() * slots.length)];
       const keys = Object.keys(PARTS[slot]).filter(id => id !== 'none_mod');
       const def = PARTS[slot][keys[Math.floor(Math.random() * keys.length)]];
@@ -177,14 +199,15 @@ const Game = (() => {
       };
     },
     affixLabel(aff) {
-      if (aff.pct) return aff.label + (aff.pct > 0 ? ' +' : ' ') + Math.round(aff.pct * 100) + '%';
-      return aff.label + (aff.flat > 0 ? ' +' : ' ') + aff.flat;
+      const v = aff.value !== undefined ? aff.value : (aff.pct !== undefined ? aff.pct : aff.flat);
+      if (aff.pct !== undefined) return aff.label + (v > 0 ? ' +' : ' ') + Math.round(v * 100) + '%';
+      return aff.label + (v > 0 ? ' +' : ' ') + v;
     }
   };
 
   function makePart(id) {
     let slot = null, target = null;
-    for (const s of ['body', 'ammo', 'mod']) {
+    for (const s of ['body', 'ammo', 'mod', 'armor']) {
       if (PARTS[s][id]) { slot = s; target = PARTS[s][id]; break; }
     }
     if (!target) throw new Error('未知部件: ' + id);
@@ -241,8 +264,9 @@ const Game = (() => {
     for (const s of ['body', 'ammo', 'mod']) {
       const part = gun.parts[s];
       for (const aff of part.affixes) {
-        if (aff.pct) st[aff.stat] *= (1 + aff.pct);
-        else st[aff.stat] += aff.flat;
+        const v = aff.value !== undefined ? aff.value : (aff.pct !== undefined ? aff.pct : aff.flat);
+        if (aff.pct !== undefined) st[aff.stat] *= (1 + v);
+        else st[aff.stat] += v;
       }
     }
 
@@ -340,7 +364,7 @@ const Game = (() => {
         return {
           x: c.x, y: c.y, w: ROOM_W, h: ROOM_H,
           type: 'combat', doors,
-          spawned: false, cleared: false, depth: 0
+          spawned: false, cleared: false, depth: 0, forgeTalked: false
         };
       });
       const depthMap = { '0,0': 0 };
@@ -379,6 +403,7 @@ const Game = (() => {
       if (others[ti]) { others[ti].type = 'shop'; ti++; }
       if (others[ti]) { others[ti].type = 'coin'; ti++; }
       if (others[ti]) { others[ti].type = 'elite'; ti++; }
+      if (others[ti]) { others[ti].type = 'forge'; ti++; }
       return { rooms, start: { x: 0, y: 0 }, boss: { x: boss.x, y: boss.y }, gridW: W, gridH: H };
     }
   };
@@ -388,7 +413,7 @@ const Game = (() => {
   const PART_DEFAULTS = { body: 'pistol_body', ammo: 'standard_ammo', mod: 'none_mod' };
   const MINIMAP_COLORS = {
     start: '#35e0ff', combat: 'rgba(122, 152, 178, 0.75)',
-    treasure: '#b06cff', shop: '#ffd166', coin: '#ffe14d',
+    treasure: '#b06cff', shop: '#ffd166', coin: '#ffe14d', forge: '#ff6ec7',
     elite: '#ff9f43', boss: '#ff3d81'
   };
   const LAYER_ACCENTS = ['#35e0ff', '#ffb347'];
@@ -582,7 +607,9 @@ const Game = (() => {
       player: {
         x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
         hp: 100, maxHp: 100, radius: 14, speed: 260,
-        aimAngle: 0, invuln: 0, recoil: 0
+        aimAngle: 0, invuln: 0, recoil: 0,
+        armor: 0, maxArmor: 0,
+        armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0 }
       },
       guns: [buildGun('pistol_body', 'standard_ammo', 'none_mod'), buildGun('pistol_body', 'standard_ammo', 'none_mod')],
       activeGun: 0,
@@ -615,10 +642,13 @@ const Game = (() => {
       dash: { cd: 0, active: false, t: 0, angle: 0, ghostT: 0 },
       dashGhosts: [],
       layer: 1,
-      maxLayers: 2
+      maxLayers: 2,
+      armor: null,
+      startNpc: null,
+      forgeNpc: null
     };
     const state = { screen: 'start', paused: false };
-    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0 };
+    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null } };
     const camera = { x: world.player.x, y: world.player.y };
     const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false, downPrev: false }, wheelDelta: 0, frameHandled: false };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
@@ -640,7 +670,43 @@ const Game = (() => {
       world.inventory.push(part);
     }
 
+    function applyArmor(refill) {
+      const part = world.armor;
+      const p = world.player;
+      const base = part ? PARTS.armor[part.id].base : null;
+      const spec = { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0 };
+      let maxArmor = 0;
+      if (base) {
+        maxArmor = base.armor;
+        if (base.speedMul) spec.speedMul = base.speedMul;
+        if (base.dmgMul) spec.dmgMul = base.dmgMul;
+        if (base.kbMul) spec.kbMul = base.kbMul;
+        if (base.regenMul) spec.regenMul = base.regenMul;
+        if (base.hpRegen) spec.hpRegen = base.hpRegen;
+        for (const aff of part.affixes) {
+          const v = aff.value !== undefined ? aff.value : aff.flat;
+          if (aff.stat === 'armor') maxArmor += v;
+          else if (aff.stat === 'armorRegen') spec.regenFlat += v;
+          else if (aff.stat === 'hpRegen') spec.hpRegen += v;
+        }
+      }
+      p.maxArmor = Math.max(0, maxArmor);
+      if (refill) p.armor = p.maxArmor;
+      else p.armor = Math.min(p.armor, p.maxArmor);
+      p.armorSpec = spec;
+    }
+
     function equipPart(part) {
+      if (part.slot === 'armor') {
+        const old = world.armor;
+        world.armor = part;
+        applyArmor(true);
+        const idx = world.inventory.indexOf(part);
+        if (idx >= 0) utils.swapRemove(world.inventory, idx);
+        if (old && old !== part) pushPart(old);
+        audio.play('ui');
+        return old;
+      }
       const g = gun();
       const old = g.parts[part.slot];
       g.parts[part.slot] = part;
@@ -653,6 +719,15 @@ const Game = (() => {
     }
 
     function unequipPart(slot) {
+      if (slot === 'armor') {
+        const old = world.armor;
+        if (!old) return;
+        world.armor = null;
+        applyArmor();
+        pushPart(old);
+        audio.play('ui');
+        return;
+      }
       const g = gun();
       const old = g.parts[slot];
       const defId = PART_DEFAULTS[slot];
@@ -1208,10 +1283,20 @@ const Game = (() => {
     function damagePlayer(dmg, angle) {
       const p = world.player;
       if (p.invuln > 0) return;
-      p.hp -= dmg;
+      let d = dmg;
+      if (p.armor > 0) {
+        const absorbed = Math.min(p.armor, d);
+        p.armor -= absorbed;
+        d -= absorbed;
+        fx.sparks(p.x, p.y, '#35e0ff', 3);
+        if (absorbed > 0) fx.floater(p.x, p.y - 30, '-' + Math.round(absorbed), 'normal');
+      }
+      d *= (p.armorSpec ? p.armorSpec.dmgMul : 1);
+      p.hp -= d;
       p.invuln = 0.4;
-      p.vx += Math.cos(angle) * 300;
-      p.vy += Math.sin(angle) * 300;
+      const kbMul = (p.armorSpec ? p.armorSpec.kbMul : 1);
+      p.vx += Math.cos(angle) * 300 * kbMul;
+      p.vy += Math.sin(angle) * 300 * kbMul;
       const spd = Math.hypot(p.vx, p.vy);
       if (spd > 800) {
         p.vx = (p.vx / spd) * 800;
@@ -1259,7 +1344,9 @@ const Game = (() => {
       world.player = {
         x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
         hp: 100, maxHp: 100, radius: 14, speed: 260,
-        aimAngle: 0, invuln: 0, recoil: 0
+        aimAngle: 0, invuln: 0, recoil: 0,
+        armor: 0, maxArmor: 0,
+        armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0 }
       };
       world.guns = [buildGun('pistol_body', 'standard_ammo', 'none_mod'), buildGun('pistol_body', 'standard_ammo', 'none_mod')];
       world.activeGun = 0;
@@ -1293,6 +1380,11 @@ const Game = (() => {
       world.dashGhosts.length = 0;
       world.layer = 1;
       world.maxLayers = 2;
+      world.armor = null;
+      world.startNpc = null;
+      world.forgeNpc = null;
+      ui.chat = null;
+      ui.forgeState = { mode: null, part: null };
       camera.x = ROOM_W / 2;
       camera.y = ROOM_H / 2;
       input.keys.clear();
@@ -1332,6 +1424,10 @@ const Game = (() => {
       input.mouse.y = e.clientY - rect.top;
     }
     function onMouseDown(e) {
+      if (e.button === 2) {
+        if (ui.chat) closeChat();
+        return;
+      }
       if (e.button !== 0) return;
       if (canvas.focus) canvas.focus();
       const rect = canvas.getBoundingClientRect();
@@ -1398,7 +1494,30 @@ const Game = (() => {
             closePanel();
           } else {
             const p = world.player;
-            if (world.chest && !world.chest.opened &&
+            if (world.startNpc &&
+                utils.distance(p.x, p.y, world.startNpc.x, world.startNpc.y) < 100) {
+              ui.chat = {
+                name: '作者 awa_cw', color: '#ff4d5e',
+                lines: ['感谢你游玩枪械工艺，我是作者awa_cw'],
+                showOptions: false
+              };
+              state.paused = true;
+              audio.play('ui');
+            } else if (world.forgeNpc &&
+                utils.distance(p.x, p.y, world.forgeNpc.x, world.forgeNpc.y) < 110) {
+              if (world.room.forgeTalked) {
+                openPanel('forgeMenu');
+              } else {
+                world.room.forgeTalked = true;
+                ui.chat = {
+                  name: '锻造师', color: '#b06cff',
+                  lines: ['你好，我是这里唯一的锻造师，我可以为你物品进行"属性强化"、"属性重组"'],
+                  showOptions: true
+                };
+                state.paused = true;
+                audio.play('ui');
+              }
+            } else if (world.chest && !world.chest.opened &&
                 utils.distance(p.x, p.y, world.chest.x, world.chest.y) < 100) {
               world.chestPart = partsEngine.rollPart();
               openPanel('chest');
@@ -1463,10 +1582,11 @@ const Game = (() => {
       const ACCEL = 1500;
       p.vx += moveX * ACCEL * dt;
       p.vy += moveY * ACCEL * dt;
+      const maxSpd = p.speed * ((p.armorSpec && p.armorSpec.speedMul) || 1);
       const spd = Math.hypot(p.vx, p.vy);
-      if (spd > p.speed) {
-        p.vx = (p.vx / spd) * p.speed;
-        p.vy = (p.vy / spd) * p.speed;
+      if (spd > maxSpd) {
+        p.vx = (p.vx / spd) * maxSpd;
+        p.vy = (p.vy / spd) * maxSpd;
       }
       const damp = Math.exp(-5.5 * dt);
       p.vx *= damp;
@@ -1542,6 +1662,11 @@ const Game = (() => {
       fx.shakePower *= Math.exp(-6 * dt);
       if (p.hp < world.hpDelay) world.hpDelay = Math.max(p.hp, world.hpDelay - 26 * dt);
       else world.hpDelay = p.hp;
+      if (p.maxArmor > 0) {
+        const as = p.armorSpec || {};
+        p.armor = Math.min(p.maxArmor, p.armor + (6 * (as.regenMul || 1) + (as.regenFlat || 0)) * dt);
+        if (as.hpRegen) p.hp = Math.min(p.maxHp, p.hp + as.hpRegen * dt);
+      }
       if (state.screen === 'playing' && p.hp > 0 && p.hp < p.maxHp * 0.3) {
         world.lowhpT -= dt;
         if (world.lowhpT <= 0) {
@@ -1958,10 +2083,14 @@ const Game = (() => {
       world.shopOffers = [];
       world.shopPrices = [];
       world.shopPos = null;
+      world.startNpc = null;
+      world.forgeNpc = null;
       camera.x = ROOM_W / 2;
       camera.y = ROOM_H / 2;
       world.player.x = ROOM_W / 2;
       world.player.y = ROOM_H / 2;
+      if (room.type === 'start') world.startNpc = { x: ROOM_W / 2 - 220, y: ROOM_H / 2 };
+      else if (room.type === 'forge') world.forgeNpc = { x: ROOM_W / 2 - 200, y: ROOM_H / 2 };
       if (room.spawned || room.cleared) return;
       room.spawned = true;
       room.obstacles = genObstacles(room);
@@ -2033,8 +2162,6 @@ const Game = (() => {
       ui.panel = name;
       ui.scroll = 0;
       state.paused = true;
-      ui.title = name === 'parts' ? '部件背包（点击装备，旧件自动卸下回背包）' :
-        name === 'shop' ? '武器商店' : '宝箱';
       buildPanelRows();
       audio.play('ui');
     }
@@ -2044,8 +2171,17 @@ const Game = (() => {
       ui.items = [];
       ui.loadout = [];
       ui.loadoutChips = [];
+      ui.forgeState = { mode: null, part: null };
       state.paused = false;
       audio.play('ui');
+    }
+
+    function closeChat() {
+      const showOpts = ui.chat && ui.chat.showOptions;
+      ui.chat = null;
+      state.paused = false;
+      audio.play('ui');
+      if (showOpts) openPanel('forgeMenu');
     }
 
     function panelMetrics(rowCountOverride) {
@@ -2067,26 +2203,39 @@ const Game = (() => {
 
     function buildPanelRows() {
       const rows = [];
+      ui.title = ui.panel === 'parts' ? '部件背包（点击装备，旧件自动卸下回背包）' :
+        ui.panel === 'shop' ? '武器商店' :
+        ui.panel === 'forgeMenu' ? '锻造师菜单' :
+        ui.panel === 'forgeList' ? (ui.forgeState.mode === 'enhance' ? '属性强化 · 选择部件' : '属性重组 · 选择部件') :
+        ui.panel === 'forgeAffix' ? (ui.forgeState.mode === 'enhance' ? '属性强化 · 选择词条' : '属性重组 · 选择词条') :
+        '宝箱';
       const rowCount = ui.panel === 'parts' ? world.inventory.length :
         ui.panel === 'shop' ? world.shopOffers.length :
+        ui.panel === 'forgeMenu' ? 2 :
+        ui.panel === 'forgeList' ? (world.inventory.length + (world.armor ? 1 : 0) + 3) :
+        ui.panel === 'forgeAffix' ? Math.max(1, (ui.forgeState.part && ui.forgeState.part.affixes.length) || 0) :
         (world.chestPart ? 1 : 0);
       const { panelW, py } = panelMetrics(rowCount);
       const x0 = view.w / 2 - panelW / 2 + 16;
       if (ui.panel === 'parts') {
         const g = gun();
-        const SLOT_NAMES = { body: '枪身', ammo: '弹药', mod: '配件' };
-        ui.loadout = ['body', 'ammo', 'mod'].map(slot => ({
-          slot, slotName: SLOT_NAMES[slot], part: g.parts[slot], defId: PART_DEFAULTS[slot]
+        const SLOT_NAMES = { body: '枪身', ammo: '弹药', mod: '配件', armor: '护甲' };
+        ui.loadout = ['body', 'ammo', 'mod', 'armor'].map(slot => ({
+          slot, slotName: SLOT_NAMES[slot],
+          part: slot === 'armor'
+            ? (world.armor || { id: 'none', name: '空', color: '#888888' })
+            : g.parts[slot],
+          defId: PART_DEFAULTS[slot]
         }));
         ui.loadoutChips = ui.loadout.map((entry, idx) => {
-          const cw2 = 132, ch2 = 28;
+          const cw2 = 98, ch2 = 28;
           const cx2 = x0 + idx * (cw2 + 8);
           const cy2 = py + 92;
           return { x: cx2, y: cy2, w: cw2, h: ch2, slot: entry.slot };
         });
         let y = py + 128;
         for (const part of world.inventory) {
-          const equipped = g.parts[part.slot];
+          const equipped = part.slot === 'armor' ? world.armor : g.parts[part.slot];
           const denied = equipped && equipped.id !== 'none_mod' && equipped.id === part.id;
           rows.push({
             x: x0, y, w: panelW - 32, h: 44,
@@ -2104,11 +2253,74 @@ const Game = (() => {
       } else if (ui.panel === 'chest') {
         const part = world.chestPart;
         if (part) rows.push({ x: x0, y: py + 96, w: panelW - 32, h: 44, part, price: null, action: 'take' });
+      } else if (ui.panel === 'forgeMenu') {
+        rows.push({ x: x0, y: py + 96, w: panelW - 32, h: 44, part: null, price: null, action: 'enhanceMenu', label: '属性强化 · 按品质扣金币' });
+        rows.push({ x: x0, y: py + 152, w: panelW - 32, h: 44, part: null, price: null, action: 'rerollMenu', label: '属性重组 · 免费，每词条限 2 次' });
+      } else if (ui.panel === 'forgeList') {
+        const g = gun();
+        const parts = [];
+        for (const it of world.inventory) parts.push(it);
+        for (const s of ['body', 'ammo', 'mod']) parts.push(g.parts[s]);
+        if (world.armor) parts.push(world.armor);
+        let y = py + 96;
+        for (const part of parts) {
+          rows.push({
+            x: x0, y, w: panelW - 32, h: 44, part,
+            price: ui.forgeState.mode === 'enhance' ? (partsEngine.enhancePrices[part.rarity] || 30) : 0,
+            action: 'forgePickPart'
+          });
+          y += 52;
+        }
+      } else if (ui.panel === 'forgeAffix') {
+        const part = ui.forgeState.part;
+        let y = py + 96;
+        if (!part || !part.affixes.length) {
+          rows.push({ x: x0, y, w: panelW - 32, h: 44, part: null, price: null, action: 'none', label: '该部件没有词条' });
+        } else {
+          for (const aff of part.affixes) {
+            rows.push({
+              x: x0, y, w: panelW - 32, h: 44, part,
+              affix: aff, price: null,
+              action: ui.forgeState.mode === 'enhance' ? 'enhanceAffix' : 'rerollAffix'
+            });
+            y += 52;
+          }
+        }
       }
       ui.items = rows;
       ui.maxScroll = Math.max(0, rowCount * 52 - (panelMetrics(rowCount).panelH - 158));
       ui.scroll = utils.clamp(ui.scroll || 0, 0, ui.maxScroll);
       for (const row of rows) row.y -= ui.scroll;
+    }
+
+    function enhanceAffix(part, aff) {
+      const qualityMul = [1, 0.85, 0.7, 0.55, 0.4][part.rarity] || 1;
+      const boost = (0.25 + Math.random() * 0.2) * qualityMul;
+      aff.value = aff.value * (1 + boost);
+      aff.enhanced = true;
+    }
+
+    function rerollAffix(part, aff) {
+      const pool = partsEngine.affixPool.filter(a => a.stat !== aff.stat);
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const higher = Math.random() < 0.6;
+      const factor = higher ? 1.1 + Math.random() * 0.4 : 0.7 + Math.random() * 0.25;
+      const oldValue = aff.value;
+      aff.stat = pick.stat;
+      aff.label = pick.label;
+      aff.pct = pick.pct;
+      aff.flat = pick.flat;
+      aff.value = Math.max(0.05, oldValue * factor);
+      aff.rerolls++;
+    }
+
+    function rebuildAfterForge(part) {
+      if (!part) return;
+      if (part.slot === 'armor') { applyArmor(); return; }
+      for (let i = 0; i < world.guns.length; i++) {
+        const gp = world.guns[i].parts;
+        if (gp.body === part || gp.ammo === part || gp.mod === part) rebuildGun(i);
+      }
     }
 
     function uiClick(x, y) {
@@ -2147,6 +2359,37 @@ const Game = (() => {
             if (world.chest) world.chest.opened = true;
             audio.play('chest');
             closePanel();
+          } else if (row.action === 'enhanceMenu') {
+            ui.forgeState = { mode: 'enhance', part: null };
+            ui.panel = 'forgeList';
+            buildPanelRows();
+          } else if (row.action === 'rerollMenu') {
+            ui.forgeState = { mode: 'reroll', part: null };
+            ui.panel = 'forgeList';
+            buildPanelRows();
+          } else if (row.action === 'forgePickPart') {
+            ui.forgeState.part = row.part;
+            ui.panel = 'forgeAffix';
+            buildPanelRows();
+          } else if (row.action === 'enhanceAffix') {
+            const aff = row.affix;
+            if (aff.enhanced) { audio.play('deny'); return; }
+            const price = partsEngine.enhancePrices[row.part.rarity] || 30;
+            if (world.coins < price) { audio.play('deny'); return; }
+            world.coins -= price;
+            enhanceAffix(row.part, aff);
+            rebuildAfterForge(row.part);
+            audio.play('buy');
+            ui.panel = 'forgeList';
+            buildPanelRows();
+          } else if (row.action === 'rerollAffix') {
+            const aff = row.affix;
+            if (aff.rerolls >= 2) { audio.play('deny'); return; }
+            rerollAffix(row.part, aff);
+            rebuildAfterForge(row.part);
+            audio.play('ui');
+            ui.panel = 'forgeList';
+            buildPanelRows();
           }
           return;
         }
@@ -2177,6 +2420,7 @@ const Game = (() => {
       drawChains();
       drawPickups();
       drawMarkers();
+      drawNpcs();
       drawPortal();
       drawEnemies();
       drawFloaters();
@@ -2185,6 +2429,7 @@ const Game = (() => {
       ctx.restore();
       drawHUD();
       drawPanel();
+      drawChat();
       drawOverlay();
       drawLowHpVignette();
       if (state.screen === 'playing' && input.keys.has('Space') && !world.dash.active) {
@@ -2585,6 +2830,57 @@ const Game = (() => {
       }
     }
 
+    function drawNpcs() {
+      const p = world.player;
+      if (world.startNpc) {
+        const n = world.startNpc;
+        ctx.save();
+        ctx.translate(n.x, n.y);
+        ctx.shadowColor = '#ff4d5e';
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = '#ff4d5e';
+        ctx.beginPath();
+        ctx.moveTo(16, 0);
+        ctx.lineTo(-10, 11);
+        ctx.lineTo(-6, 0);
+        ctx.lineTo(-10, -11);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+        if (utils.distance(p.x, p.y, n.x, n.y) < 100) drawHint(n.x, n.y - 26, 'E 对话');
+      }
+      if (world.forgeNpc) {
+        const n = world.forgeNpc;
+        const t = (Math.sin(world.time * 2.4) + 1) / 2;
+        const h1 = [176, 108, 255], h2 = [255, 209, 102];
+        const col = 'rgb(' + Math.round(h1[0] + (h2[0] - h1[0]) * t) + ',' +
+          Math.round(h1[1] + (h2[1] - h1[1]) * t) + ',' +
+          Math.round(h1[2] + (h2[2] - h1[2]) * t) + ')';
+        ctx.save();
+        ctx.translate(n.x, n.y);
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(16, 0);
+        ctx.lineTo(-10, 11);
+        ctx.lineTo(-6, 0);
+        ctx.lineTo(-10, -11);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+        if (utils.distance(p.x, p.y, n.x, n.y) < 110) drawHint(n.x, n.y - 26, 'E 锻造');
+      }
+    }
+
     function drawHint(x, y, text) {
       ctx.font = '12px Consolas, monospace';
       ctx.textAlign = 'center';
@@ -2678,31 +2974,53 @@ const Game = (() => {
         ctx.globalAlpha = row.denied ? 0.4 : 1;
         ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
         ctx.fillRect(row.x, row.y, row.w, row.h);
-        ctx.fillStyle = row.part.color;
+        ctx.fillStyle = row.affix ? '#ffb347' : (row.part ? row.part.color : '#35e0ff');
         ctx.fillRect(row.x, row.y, 4, row.h);
-        ctx.fillStyle = '#ffffff';
         ctx.font = '13px Consolas, monospace';
         ctx.textAlign = 'left';
-        ctx.fillText('[' + (row.slotName || '') + '] ' + row.part.name, row.x + 14, row.y + 18);
-        const rc = partsEngine.rarityColors[row.part.rarity];
-        ctx.fillStyle = rc;
-        ctx.fillText(partsEngine.rarityNames[row.part.rarity], row.x + 14, row.y + 34);
-        let affText = row.part.affixes.map(a => partsEngine.affixLabel(a)).join('  ');
-        if (!affText) affText = row.part.desc;
-        ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        ctx.fillText(affText, row.x + 110, row.y + 18);
-        if (row.price !== null) {
-          ctx.fillStyle = '#ffd166';
+        if (row.label) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(row.label, row.x + 14, row.y + 27);
+        } else if (row.affix) {
+          const aff = row.affix;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(partsEngine.affixLabel(aff), row.x + 14, row.y + 18);
+          const marks = [];
+          if (aff.enhanced) marks.push('已强化');
+          if (aff.rerolls > 0) marks.push('已重组 ' + aff.rerolls + '/2');
+          ctx.fillStyle = 'rgba(255,255,255,0.55)';
+          ctx.font = '11px Consolas, monospace';
+          ctx.fillText(marks.join('  '), row.x + 14, row.y + 34);
+          ctx.fillStyle = aff.enhanced ? '#ff8f3d' : aff.rerolls >= 2 ? '#ff4d5e' : 'rgba(53,224,255,0.8)';
           ctx.textAlign = 'right';
-          ctx.fillText('◆ ' + row.price, row.x + row.w - 14, row.y + 26);
-        } else if (row.action === 'equip') {
-          ctx.fillStyle = row.denied ? '#ff4d5e' : 'rgba(53,224,255,0.8)';
-          ctx.textAlign = 'right';
-          ctx.fillText(row.denied ? '已装备同类' : '装备', row.x + row.w - 14, row.y + 26);
-        } else if (row.action === 'take') {
-          ctx.fillStyle = '#7ef29a';
-          ctx.textAlign = 'right';
-          ctx.fillText('领取', row.x + row.w - 14, row.y + 26);
+          ctx.fillText(
+            aff.enhanced ? '已强化' : aff.rerolls >= 2 ? '次数已满' :
+              (ui.forgeState.mode === 'enhance' ? '强化' : '重组'),
+            row.x + row.w - 14, row.y + 26
+          );
+        } else if (row.part) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText('[' + (row.slotName || '') + '] ' + row.part.name, row.x + 14, row.y + 18);
+          const rc = partsEngine.rarityColors[row.part.rarity];
+          ctx.fillStyle = rc;
+          ctx.fillText(partsEngine.rarityNames[row.part.rarity], row.x + 14, row.y + 34);
+          let affText = row.part.affixes.map(a => partsEngine.affixLabel(a)).join('  ');
+          if (!affText) affText = row.part.desc;
+          ctx.fillStyle = 'rgba(255,255,255,0.65)';
+          ctx.fillText(affText, row.x + 110, row.y + 18);
+          if (row.price !== null) {
+            ctx.fillStyle = '#ffd166';
+            ctx.textAlign = 'right';
+            ctx.fillText(row.price > 0 ? '◆ ' + row.price : '免费', row.x + row.w - 14, row.y + 26);
+          } else if (row.action === 'equip') {
+            ctx.fillStyle = row.denied ? '#ff4d5e' : 'rgba(53,224,255,0.8)';
+            ctx.textAlign = 'right';
+            ctx.fillText(row.denied ? '已装备同类' : '装备', row.x + row.w - 14, row.y + 26);
+          } else if (row.action === 'take') {
+            ctx.fillStyle = '#7ef29a';
+            ctx.textAlign = 'right';
+            ctx.fillText('领取', row.x + row.w - 14, row.y + 26);
+          }
         }
         ctx.globalAlpha = 1;
       }
@@ -2717,6 +3035,35 @@ const Game = (() => {
         ctx.fillStyle = '#35e0ff';
         ctx.fillRect(trackX, thumbY, 4, thumbH);
       }
+      ctx.textAlign = 'left';
+    }
+
+    function drawChat() {
+      if (!ui.chat) return;
+      const c = ui.chat;
+      const bw = Math.min(720, view.w - 60);
+      const bx = (view.w - bw) / 2;
+      const bh = 96;
+      const by = view.h - bh - 16;
+      ctx.fillStyle = 'rgba(4, 8, 14, 0.92)';
+      ctx.strokeStyle = c.color || '#35e0ff';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = c.color || '#35e0ff';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.shadowBlur = 0;
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.color || '#35e0ff';
+      ctx.font = 'bold 14px Consolas, monospace';
+      ctx.fillText(c.name, bx + 16, by + 24);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '13px Consolas, monospace';
+      (c.lines || []).forEach((ln, i) => ctx.fillText(ln, bx + 16, by + 50 + i * 18));
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '11px Consolas, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText('右键关闭', bx + bw - 14, by + bh - 12);
       ctx.textAlign = 'left';
     }
 
@@ -2839,6 +3186,17 @@ const Game = (() => {
       ctx.font = '13px Consolas, monospace';
       ctx.fillText(Math.ceil(p.hp) + ' / ' + p.maxHp, hx, hy - 6);
 
+      if (p.maxArmor > 0) {
+        const aw = 260;
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(hx, hy - 18, aw, 7);
+        ctx.fillStyle = '#35e0ff';
+        ctx.fillRect(hx, hy - 18, aw * utils.clamp(p.armor / p.maxArmor, 0, 1), 7);
+        ctx.fillStyle = 'rgba(180,230,255,0.85)';
+        ctx.font = '10px Consolas, monospace';
+        ctx.fillText('护甲 ' + Math.ceil(p.armor) + '/' + p.maxArmor, hx, hy - 22);
+      }
+
       ctx.textAlign = 'right';
       ctx.fillStyle = g.mag === 0 ? '#ff4d5e' : '#ffd166';
       ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, view.h - 18);
@@ -2863,19 +3221,32 @@ const Game = (() => {
         ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 70);
       }
       const dash = world.dash;
+      const dBarW = 190, dBarH = 10;
+      const dBarX = view.w / 2 - dBarW / 2;
+      const dBarY = view.h - 64;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(dBarX - 2, dBarY - 2, dBarW + 4, dBarH + 4);
       if (dash.cd > 0) {
         const frac = 1 - dash.cd / 3;
-        ctx.fillStyle = 'rgba(255,255,255,0.45)';
-        ctx.font = '12px Consolas, monospace';
-        ctx.fillText('瞬身 ' + dash.cd.toFixed(1) + 's', view.w / 2, view.h - 44);
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.fillRect(view.w / 2 - 50, view.h - 40, 100, 5);
-        ctx.fillStyle = '#35e0ff';
-        ctx.fillRect(view.w / 2 - 50, view.h - 40, 100 * utils.clamp(frac, 0, 1), 5);
+        const pulse = 0.6 + 0.4 * Math.sin(world.time * 6);
+        ctx.fillStyle = 'rgba(255,77,94,0.25)';
+        ctx.fillRect(dBarX, dBarY, dBarW, dBarH);
+        ctx.fillStyle = '#ff4d5e';
+        ctx.fillRect(dBarX, dBarY, dBarW * frac, dBarH);
+        ctx.strokeStyle = 'rgba(255,77,94,' + (0.5 + 0.5 * pulse) + ')';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dBarX - 2, dBarY - 2, dBarW + 4, dBarH + 4);
+        ctx.fillStyle = '#ff9f9f';
+        ctx.font = 'bold 14px Consolas, monospace';
+        ctx.fillText('瞬身冷却 ' + dash.cd.toFixed(1) + 's', view.w / 2, dBarY - 8);
       } else {
         ctx.fillStyle = '#35e0ff';
-        ctx.font = '12px Consolas, monospace';
-        ctx.fillText('瞬身就绪（空格+左键）', view.w / 2, view.h - 44);
+        ctx.fillRect(dBarX, dBarY, dBarW, dBarH);
+        ctx.strokeStyle = '#35e0ff';
+        ctx.strokeRect(dBarX - 2, dBarY - 2, dBarW + 4, dBarH + 4);
+        ctx.fillStyle = '#9adcff';
+        ctx.font = 'bold 14px Consolas, monospace';
+        ctx.fillText('瞬身就绪（空格+左键）', view.w / 2, dBarY - 8);
       }
       drawMinimap();
     }
@@ -3043,6 +3414,7 @@ const Game = (() => {
       if (canvas.setAttribute) canvas.setAttribute('tabindex', '0');
       if (canvas.focus) canvas.focus();
       if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('contextmenu', ev => ev.preventDefault());
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
         window.addEventListener('mousemove', onMouseMove);
@@ -3062,7 +3434,7 @@ const Game = (() => {
       gun, rebuildGun,
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
-      openPanel, closePanel, uiClick, panelMetrics, buildPanelRows,
+      openPanel, closePanel, uiClick, panelMetrics, buildPanelRows, closeChat,
       startMap, enterRoom,
       update, render, start, setScreen, restart, beginRun, hudData,
       VERSION
