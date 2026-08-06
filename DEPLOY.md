@@ -26,3 +26,5 @@ Settings → Pages 里选择分支 `gh-pages` + 根目录 `/`，保存即可。
 访问地址：`https://awa-123-cw.github.io/gun-craft/`
 
 > 首次推送时，Windows 凭据管理器可能弹出 GitHub 登录窗口，按提示登录一次即可。
+
+> 最后同步验证：2026-08-07（自动推送已生效）
