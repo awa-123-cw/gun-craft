@@ -203,3 +203,38 @@ test('击杀掉落与商店购买', () => {
   assert.strictEqual(game.world.coins, 30, '购买扣钱');
   assert.ok(game.world.inventory.length >= 1, '购买部件入背包');
 });
+
+test('地图生成连通：起点可 BFS 到 Boss', () => {
+  const { Game } = makeGame();
+  const map = Game.map.generate(12345);
+  const visited = new Set();
+  const q = [[map.start.x, map.start.y]];
+  visited.add(map.start.x + ',' + map.start.y);
+  while (q.length) {
+    const [x, y] = q.shift();
+    const room = map.rooms.find(r => r.x === x && r.y === y);
+    for (const d of ['n', 'e', 's', 'w']) {
+      if (!room.doors[d]) continue;
+      const nx = x + (d === 'e' ? 1 : d === 'w' ? -1 : 0);
+      const ny = y + (d === 's' ? 1 : d === 'n' ? -1 : 0);
+      const k = nx + ',' + ny;
+      if (!visited.has(k)) { visited.add(k); q.push([nx, ny]); }
+    }
+  }
+  assert.ok(visited.has(map.boss.x + ',' + map.boss.y), 'Boss 房必须可达');
+  assert.ok(map.rooms.length >= 5, '至少 5 个房间');
+});
+
+test('进入战斗房刷怪，清空后开门', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  assert.ok(combat, '应存在战斗房');
+  game.enterRoom(combat.x, combat.y);
+  assert.ok(game.world.enemies.length > 0, '战斗房应刷怪');
+  for (const e of [...game.world.enemies]) game.killEnemy(e);
+  game.update(0.1); // 先消耗击杀 hit-stop
+  game.update(1 / 60);
+  assert.ok(game.world.room.cleared, '清怪后房间应标记 cleared');
+  assert.ok(Object.values(game.world.room.doors).some(Boolean), '应有门');
+});
