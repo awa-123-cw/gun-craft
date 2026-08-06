@@ -2452,8 +2452,11 @@ const Game = (() => {
     function spawnAuthorBoss() {
       const n = world.startNpc;
       if (!n) return;
-      const boss = spawnEnemy('boss', n.x, n.y, 16); // 840×10 = 8400 HP
+      const boss = spawnEnemy('boss', n.x, n.y, 1);
       boss.specialNpc = true;
+      boss.scale = 3; // 保持 NPC 造型放大 300%
+      boss.maxHp = 8400; // 血量 = Boss 的 1000%
+      boss.hp = 8400;
       boss.renderScale = 0.1;
       boss.growT = 0;
       world.enemies.push(boss);
@@ -2872,6 +2875,34 @@ const Game = (() => {
         if (e.kind === 'boss') {
           const phaseColor = e.phase >= 3 ? '#ff4d5e' : e.phase === 2 ? '#ffd166' : '#35e0ff';
           const rr = e.radius * (e.renderScale || 1);
+          if (e.specialNpc) {
+            // 作者 NPC 变身后的外观：保持 NPC 彩虹三角造型，放大 300%
+            const hue = (world.time * 90) % 360;
+            const col = 'hsl(' + hue + ',85%,60%)';
+            ctx.shadowColor = col;
+            ctx.shadowBlur = 22;
+            ctx.fillStyle = flash ? '#ffffff' : col;
+            ctx.beginPath();
+            ctx.moveTo(rr, 0);
+            ctx.lineTo(-rr * 0.6, rr * 0.7);
+            ctx.lineTo(-rr * 0.35, 0);
+            ctx.lineTo(-rr * 0.6, -rr * 0.7);
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            // 血条
+            const bw = 300, bh = 10;
+            const by = e.y - rr - 34;
+            ctx.fillStyle = 'rgba(0,0,0,0.65)';
+            ctx.fillRect(e.x - bw / 2, by, bw, bh);
+            ctx.fillStyle = '#ff3d81';
+            ctx.fillRect(e.x - bw / 2, by, bw * utils.clamp(e.hp / e.maxHp, 0, 1), bh);
+            ctx.restore();
+            continue;
+          }
           ctx.shadowColor = e.color;
           ctx.shadowBlur = 20;
           ctx.fillStyle = flash ? '#ffffff' : e.color;
