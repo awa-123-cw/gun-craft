@@ -296,3 +296,28 @@ test('HUD 数据完整', () => {
     assert.ok(k in h, 'hudData 应包含 ' + k);
   }
 });
+
+test('全局约束回归：部件数/粒子池/打击感标志', () => {
+  const { Game, game } = makeGame();
+  assert.ok(Object.keys(Game.PARTS.body).length >= 5);
+  assert.ok(Object.keys(Game.PARTS.ammo).length >= 6);
+  const modCount = Object.keys(Game.PARTS.mod).filter(id => id !== 'none_mod').length;
+  assert.ok(modCount >= 6);
+  assert.strictEqual(game.fx.poolLimit, 1500, '粒子池上限 1500');
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  e.hp = 1;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 5, 0, {});
+  assert.ok(game.fx.hitStopMs > 0, '击杀应触发 hit-stop');
+  const before = game.fx.hitStopMs;
+  game.damageEnemy(e, 5, 0, {}); // 已死亡敌人不应叠加
+  assert.strictEqual(game.fx.hitStopMs, before, '同一帧不叠加 hit-stop');
+});
+
+test('长跑稳定性：模拟 60 秒战斗不报错', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.input.mouse.down = true;
+  for (let i = 0; i < 7200; i++) game.update(1 / 120);
+  assert.ok(game.world.time > 50, '世界时间应推进');
+});

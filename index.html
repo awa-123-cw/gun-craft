@@ -353,6 +353,8 @@ const Game = (() => {
     }
   };
 
+  const GUN_SOUNDS = { pistol_body: 'pistol', smg_body: 'smg', shotgun_body: 'shotgun', sniper_body: 'sniper', heavy_body: 'heavy' };
+
   // ===== ENEMY_KINDS =====
   const ENEMY_KINDS = {
     chaser: {
@@ -443,7 +445,7 @@ const Game = (() => {
       g.connect(a.destination);
       src.start();
     }
-    function play(name) {
+    function play(name, opt) {
       const a = ac();
       if (!a) return;
       if (a.state === 'suspended') { try { a.resume(); } catch (e) {} }
@@ -451,6 +453,22 @@ const Game = (() => {
         case 'pistol':
           noise(0.05, 0.45, 3200);
           tone(240 + Math.random() * 20, 70, 0.07, 'square', 0.22);
+          break;
+        case 'smg':
+          noise(0.04, 0.35, 4200);
+          tone(340 + Math.random() * 20, 170, 0.05, 'square', 0.16);
+          break;
+        case 'shotgun':
+          noise(0.12, 0.6, 1600);
+          tone(150, 50, 0.2, 'triangle', 0.35);
+          break;
+        case 'sniper':
+          noise(0.16, 0.55, 2800);
+          tone(520, 60, 0.3, 'sawtooth', 0.3);
+          break;
+        case 'heavy':
+          noise(0.09, 0.5, 2000);
+          tone(180, 60, 0.14, 'square', 0.28);
           break;
         case 'hit':
           noise(0.03, 0.3, 4500);
@@ -490,6 +508,20 @@ const Game = (() => {
           tone(120, 38, 0.7, 'triangle', 0.3, 0.1);
           noise(0.5, 0.3, 500);
           break;
+        case 'door':
+          tone(120, 220, 0.18, 'sine', 0.2);
+          tone(160, 260, 0.12, 'sine', 0.12, 0.08);
+          break;
+        case 'combo':
+          {
+            const c = Math.min(8, opt || 1);
+            tone(500 + c * 70, 700 + c * 90, 0.09, 'square', 0.12);
+          }
+          break;
+        case 'lowhp':
+          tone(72, 54, 0.15, 'sine', 0.24);
+          tone(60, 46, 0.12, 'sine', 0.18, 0.17);
+          break;
       }
     }
     return { play };
@@ -526,7 +558,8 @@ const Game = (() => {
       chest: null,
       mapInfo: { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 },
       transition: { active: false, t: 0, rx: 0, ry: 0 },
-      hpDelay: 100
+      hpDelay: 100,
+      lowhpT: 0
     };
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [] };
@@ -1003,6 +1036,7 @@ const Game = (() => {
       if (now - world.stats.comboT < 0.5) world.stats.combo++;
       else world.stats.combo = 1;
       world.stats.comboT = now;
+      if (world.stats.combo >= 3) audio.play('combo', world.stats.combo);
     }
 
     function setScreen(name) {
@@ -1041,6 +1075,7 @@ const Game = (() => {
       world.mapInfo = { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 };
       world.transition.active = false;
       world.hpDelay = 100;
+      world.lowhpT = 0;
       camera.x = ROOM_W / 2;
       camera.y = ROOM_H / 2;
       input.keys.clear();
@@ -1194,6 +1229,13 @@ const Game = (() => {
       fx.shakePower *= Math.exp(-6 * dt);
       if (p.hp < world.hpDelay) world.hpDelay = Math.max(p.hp, world.hpDelay - 26 * dt);
       else world.hpDelay = p.hp;
+      if (state.screen === 'playing' && p.hp > 0 && p.hp < p.maxHp * 0.3) {
+        world.lowhpT -= dt;
+        if (world.lowhpT <= 0) {
+          world.lowhpT = 0.85;
+          audio.play('lowhp');
+        }
+      }
 
       camera.x += (p.x - camera.x) * Math.min(1, 10 * dt);
       camera.y += (p.y - camera.y) * Math.min(1, 10 * dt);
@@ -1242,7 +1284,7 @@ const Game = (() => {
         life: 0.09, color: '#ffd166'
       });
       p.recoil = Math.min(1, p.recoil + 0.35);
-      audio.play('pistol');
+      audio.play(GUN_SOUNDS[g.parts.body.id] || 'pistol');
     }
 
     function updateGun(dt) {
@@ -1609,6 +1651,7 @@ const Game = (() => {
             }
           } else if (row.action === 'take') {
             pushPart(row.part);
+            world.coins += 3;
             world.chestPart = null;
             if (world.chest) world.chest.opened = true;
             audio.play('chest');
