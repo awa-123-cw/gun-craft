@@ -233,21 +233,25 @@ const Game = (() => {
 
   // ===== map（房间地图生成）=====
   const mapModule = {
-    generate(seed) {
+    generate(seed, layer) {
       const rng = utils.mulberry32(seed || 1);
-      const W = 3, H = 3;
+      const lv = layer || 1;
+      const W = lv >= 2 ? 4 : 3;
+      const H = lv >= 2 ? 4 : 3;
+      const fillP = lv >= 2 ? 0.7 : 0.9;
+      const minRooms = lv >= 2 ? 9 : 6;
       const cells = [];
       for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
-          if (rng() < 0.78) cells.push({ x, y });
+          if (rng() < fillP) cells.push({ x, y });
         }
       }
       if (!cells.some(c => c.x === 0 && c.y === 0)) cells.push({ x: 0, y: 0 });
-      if (cells.length < 5) {
-        const extra = [[0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 2], [1, 2], [2, 1]];
-        for (const [ex, ey] of extra) {
-          if (cells.length >= 5) break;
-          if (!cells.some(c => c.x === ex && c.y === ey)) cells.push({ x: ex, y: ey });
+      if (cells.length < minRooms) {
+        for (let y = 0; y < H && cells.length < minRooms; y++) {
+          for (let x = 0; x < W && cells.length < minRooms; x++) {
+            if (!cells.some(c => c.x === x && c.y === y)) cells.push({ x, y });
+          }
         }
       }
       const key = (x, y) => x + ',' + y;
@@ -349,17 +353,19 @@ const Game = (() => {
       if (others[ti]) { others[ti].type = 'treasure'; ti++; }
       if (others[ti]) { others[ti].type = 'shop'; ti++; }
       if (others[ti]) { others[ti].type = 'elite'; ti++; }
-      return { rooms, start: { x: 0, y: 0 }, boss: { x: boss.x, y: boss.y } };
+      return { rooms, start: { x: 0, y: 0 }, boss: { x: boss.x, y: boss.y }, gridW: W, gridH: H };
     }
   };
 
   const GUN_SOUNDS = { pistol_body: 'pistol', smg_body: 'smg', shotgun_body: 'shotgun', sniper_body: 'sniper', heavy_body: 'heavy' };
   const GUN_RECOIL = { pistol_body: 0.35, smg_body: 0.22, shotgun_body: 0.75, sniper_body: 0.9, heavy_body: 0.85 };
+  const PART_DEFAULTS = { body: 'pistol_body', ammo: 'standard_ammo', mod: 'none_mod' };
   const MINIMAP_COLORS = {
     start: '#35e0ff', combat: 'rgba(122, 152, 178, 0.75)',
     treasure: '#b06cff', shop: '#ffd166',
     elite: '#ff9f43', boss: '#ff3d81'
   };
+  const LAYER_ACCENTS = ['#35e0ff', '#ffb347'];
 
   // ===== ENEMY_KINDS =====
   const ENEMY_KINDS = {
@@ -574,10 +580,13 @@ const Game = (() => {
       transition: { active: false, t: 0, rx: 0, ry: 0 },
       hpDelay: 100,
       lowhpT: 0,
-      dash: { cd: 0, active: false, t: 0, angle: 0 }
+      dash: { cd: 0, active: false, t: 0, angle: 0, ghostT: 0 },
+      dashGhosts: [],
+      layer: 1,
+      maxLayers: 2
     };
     const state = { screen: 'start', paused: false };
-    const ui = { panel: 'none', title: '', items: [] };
+    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [] };
     const camera = { x: world.player.x, y: world.player.y };
     const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false, downPrev: false }, wheelDelta: 0, frameHandled: false };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
@@ -585,6 +594,9 @@ const Game = (() => {
     let acc = 0, last = 0, raf = 0;
 
     function gun() { return world.guns[world.activeGun]; }
+    function accent() {
+      return LAYER_ACCENTS[Math.min(world.layer, LAYER_ACCENTS.length) - 1] || '#35e0ff';
+    }
     function rebuildGun(i) {
       const g = world.guns[i];
       applyParts(g);
@@ -603,8 +615,20 @@ const Game = (() => {
       rebuildGun(world.activeGun);
       const idx = world.inventory.indexOf(part);
       if (idx >= 0) utils.swapRemove(world.inventory, idx);
+      if (old && old !== part && old.id !== 'none_mod') pushPart(old);
       audio.play('ui');
       return old;
+    }
+
+    function unequipPart(slot) {
+      const g = gun();
+      const old = g.parts[slot];
+      const defId = PART_DEFAULTS[slot];
+      if (old.id === defId) return;
+      g.parts[slot] = makePart(defId);
+      rebuildGun(world.activeGun);
+      pushPart(old);
+      audio.play('ui');
     }
 
     function spawnPickup(kind, x, y, payload) {
@@ -991,15 +1015,19 @@ const Game = (() => {
       if (e.dead) return;
       e.dead = true;
       if (e.kind === 'boss') {
-        for (let i = 0; i < 4; i++) {
-          spawnPickup('part', e.x + utils.rand(-70, 70), e.y + utils.rand(-70, 70), partsEngine.rollPart());
-        }
-        spawnPickup('medkit', e.x, e.y + 60, 0);
-        spawnPickup('medkit', e.x, e.y - 60, 0);
         fx.slowmo(0.3, 0.5);
         fx.hitStop(120);
         audio.play('roar');
-        setScreen('win');
+        if (world.layer >= world.maxLayers) {
+          for (let i = 0; i < 4; i++) {
+            spawnPickup('part', e.x + utils.rand(-70, 70), e.y + utils.rand(-70, 70), partsEngine.rollPart());
+          }
+          spawnPickup('medkit', e.x, e.y + 60, 0);
+          spawnPickup('medkit', e.x, e.y - 60, 0);
+          setScreen('win');
+        } else {
+          world.transition = { active: true, t: 0, rx: 'next', ry: 0 };
+        }
       }
       const idx = world.enemies.indexOf(e);
       if (idx >= 0) utils.swapRemove(world.enemies, idx);
@@ -1100,7 +1128,10 @@ const Game = (() => {
       world.transition.active = false;
       world.hpDelay = 100;
       world.lowhpT = 0;
-      world.dash = { cd: 0, active: false, t: 0, angle: 0 };
+      world.dash = { cd: 0, active: false, t: 0, angle: 0, ghostT: 0 };
+      world.dashGhosts.length = 0;
+      world.layer = 1;
+      world.maxLayers = 2;
       camera.x = ROOM_W / 2;
       camera.y = ROOM_H / 2;
       input.keys.clear();
@@ -1210,7 +1241,8 @@ const Game = (() => {
         world.transition.t += dt;
         if (world.transition.t >= 0.6) {
           world.transition.active = false;
-          enterRoom(world.transition.rx, world.transition.ry);
+          if (world.transition.rx === 'next') advanceLayer();
+          else enterRoom(world.transition.rx, world.transition.ry);
         }
         return;
       }
@@ -1265,10 +1297,22 @@ const Game = (() => {
         dash.t -= dt;
         p.x += Math.cos(dash.angle) * 1400 * dt;
         p.y += Math.sin(dash.angle) * 1400 * dt;
-        fx.spawn({
-          kind: 'dash', x: p.x, y: p.y, vx: 0, vy: 0,
-          life: 0.22, color: '#35e0ff', size: 11
-        });
+        for (let s = 0; s < 2; s++) {
+          fx.spawn({
+            kind: 'dash', x: p.x + utils.rand(-5, 5), y: p.y + utils.rand(-5, 5),
+            vx: -Math.cos(dash.angle) * 240, vy: -Math.sin(dash.angle) * 240,
+            life: 0.28, color: '#35e0ff', size: 7 + Math.random() * 6, angle: dash.angle
+          });
+        }
+        dash.ghostT += dt;
+        if (dash.ghostT > 0.02) {
+          dash.ghostT = 0;
+          world.dashGhosts.push({
+            x: p.x, y: p.y, angle: p.aimAngle,
+            life: 0.3, maxLife: 0.3, color: '#35e0ff'
+          });
+          if (world.dashGhosts.length > 12) world.dashGhosts.shift();
+        }
         if (dash.t <= 0) dash.active = false;
       }
       if (input.mouse.down && !input.mouse.downPrev &&
@@ -1297,6 +1341,7 @@ const Game = (() => {
       updateFloaters(dt);
       updatePickups(dt);
       updateChains(dt);
+      updateDashGhosts(dt);
 
       p.invuln -= dt;
       fx.shakePower *= Math.exp(-6 * dt);
@@ -1427,8 +1472,9 @@ const Game = (() => {
             b.vy = Math.sin(cur + turn) * sp;
           }
         }
-        b.px = b.x;
-        b.py = b.y;
+        if (!b.trail) b.trail = [];
+        b.trail.push({ x: b.x, y: b.y });
+        if (b.trail.length > 8) b.trail.shift();
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
@@ -1593,11 +1639,30 @@ const Game = (() => {
       }
     }
 
+    function updateDashGhosts(dt) {
+      for (let i = world.dashGhosts.length - 1; i >= 0; i--) {
+        world.dashGhosts[i].life -= dt;
+        if (world.dashGhosts[i].life <= 0) utils.swapRemove(world.dashGhosts, i);
+      }
+    }
+
     // ===== 房间流程 =====
-    function startMap(seed) {
-      world.map = mapModule.generate(seed);
+    function startMap(seed, layer) {
+      world.layer = layer || 1;
+      world.map = mapModule.generate(seed, world.layer);
       world.mapInfo = { roomPos: { x: 0, y: 0 }, totalRooms: world.map.rooms.length, clearedRooms: 0 };
       enterRoom(0, 0);
+    }
+
+    function advanceLayer() {
+      world.layer++;
+      world.map = mapModule.generate(Math.floor(Math.random() * 100000) + 1, world.layer);
+      world.mapInfo = { roomPos: { x: 0, y: 0 }, totalRooms: world.map.rooms.length, clearedRooms: 0 };
+      enterRoom(0, 0);
+      world.player.hp = Math.min(world.player.maxHp, world.player.hp + 30);
+      world.player.invuln = 1;
+      fx.floater(world.player.x, world.player.y - 40, '进入第 ' + world.layer + ' 层', 'crit');
+      audio.play('door');
     }
 
     function randSpawnPos() {
@@ -1631,21 +1696,23 @@ const Game = (() => {
       if (room.spawned || room.cleared) return;
       room.spawned = true;
       if (room.type === 'combat') {
-        const n = Math.min(9, 4 + Math.floor(room.depth * 0.7));
+        const layerBonus = (world.layer - 1) * 2;
+        const n = Math.min(10, 4 + Math.floor(room.depth * 0.7) + layerBonus);
         for (let i = 0; i < n; i++) {
           const rr = Math.random();
           const kind = rr < 0.4 ? 'chaser' : rr < 0.7 ? 'shooter' : rr < 0.9 ? 'splitter' : 'buzzer';
-          const sc = 1 + room.depth * 0.12 + (Math.random() < 0.2 ? 1 : 0);
+          const sc = 1 + room.depth * 0.12 + (world.layer - 1) * 0.2 + (Math.random() < 0.2 ? 1 : 0);
           const pos = randSpawnPos();
           world.enemies.push(spawnEnemy(kind, pos.x, pos.y, sc));
         }
       } else if (room.type === 'elite') {
         const pos = randSpawnPos();
-        world.enemies.push(spawnEnemy('elite', pos.x, pos.y, 1));
-        world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3));
-        world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3));
+        const es = 1 + (world.layer - 1) * 0.35;
+        world.enemies.push(spawnEnemy('elite', pos.x, pos.y, es));
+        world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
+        world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
       } else if (room.type === 'boss') {
-        world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2, 1));
+        world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2, 1 + (world.layer - 1) * 0.4));
       } else if (room.type === 'treasure') {
         world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
       } else if (room.type === 'shop') {
@@ -1688,7 +1755,7 @@ const Game = (() => {
     function openPanel(name) {
       ui.panel = name;
       state.paused = true;
-      ui.title = name === 'parts' ? '部件背包（点击装备到当前枪）' :
+      ui.title = name === 'parts' ? '部件背包（点击装备，旧件自动卸下回背包）' :
         name === 'shop' ? '武器商店' : '宝箱';
       buildPanelRows();
       audio.play('ui');
@@ -1697,6 +1764,8 @@ const Game = (() => {
     function closePanel() {
       ui.panel = 'none';
       ui.items = [];
+      ui.loadout = [];
+      ui.loadoutChips = [];
       state.paused = false;
       audio.play('ui');
     }
@@ -1706,9 +1775,26 @@ const Game = (() => {
       const panelW = 460;
       const x0 = view.w / 2 - panelW / 2 + 16;
       if (ui.panel === 'parts') {
-        let y = 96;
+        const g = gun();
+        const SLOT_NAMES = { body: '枪身', ammo: '弹药', mod: '配件' };
+        ui.loadout = ['body', 'ammo', 'mod'].map(slot => ({
+          slot, slotName: SLOT_NAMES[slot], part: g.parts[slot], defId: PART_DEFAULTS[slot]
+        }));
+        ui.loadoutChips = ui.loadout.map((entry, idx) => {
+          const cw2 = 132, ch2 = 28;
+          const cx2 = x0 + idx * (cw2 + 8);
+          const cy2 = 164;
+          return { x: cx2, y: cy2, w: cw2, h: ch2, slot: entry.slot };
+        });
+        let y = 208;
         for (const part of world.inventory) {
-          rows.push({ x: x0, y, w: panelW - 32, h: 44, part, price: null, action: 'equip' });
+          const equipped = g.parts[part.slot];
+          const denied = equipped && equipped.id !== 'none_mod' && equipped.id === part.id;
+          rows.push({
+            x: x0, y, w: panelW - 32, h: 44,
+            part, price: null, action: 'equip',
+            denied, slotName: SLOT_NAMES[part.slot]
+          });
           y += 52;
         }
       } else if (ui.panel === 'shop') {
@@ -1725,9 +1811,20 @@ const Game = (() => {
     }
 
     function uiClick(x, y) {
+      for (const chip of ui.loadoutChips || []) {
+        if (x >= chip.x && x <= chip.x + chip.w && y >= chip.y && y <= chip.y + chip.h) {
+          unequipPart(chip.slot);
+          buildPanelRows();
+          return;
+        }
+      }
       for (const row of ui.items) {
         if (x >= row.x && x <= row.x + row.w && y >= row.y && y <= row.y + row.h) {
           if (row.action === 'equip') {
+            if (row.denied) {
+              audio.play('deny');
+              return;
+            }
             equipPart(row.part);
             buildPanelRows();
             if (!world.inventory.length) closePanel();
@@ -1779,6 +1876,7 @@ const Game = (() => {
       drawMarkers();
       drawEnemies();
       drawFloaters();
+      drawDashGhosts();
       drawPlayer();
       ctx.restore();
       drawHUD();
@@ -1797,40 +1895,55 @@ const Game = (() => {
 
     function drawRoom() {
       const r = world.room;
+      const ac = accent();
       ctx.fillStyle = 'rgba(14, 20, 32, 0.92)';
       ctx.fillRect(r.x, r.y, r.w, r.h);
 
-      ctx.strokeStyle = 'rgba(53, 224, 255, 0.08)';
+      ctx.strokeStyle = ac;
+      ctx.globalAlpha = 0.08;
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let gx = r.x; gx <= r.w; gx += 80) { ctx.moveTo(gx, r.y); ctx.lineTo(gx, r.h); }
       for (let gy = r.y; gy <= r.h; gy += 80) { ctx.moveTo(r.x, gy); ctx.lineTo(r.w, gy); }
       ctx.stroke();
+      ctx.globalAlpha = 1;
 
-      ctx.shadowColor = '#35e0ff';
+      ctx.shadowColor = ac;
       ctx.shadowBlur = 14;
-      ctx.strokeStyle = '#35e0ff';
+      ctx.strokeStyle = ac;
       ctx.lineWidth = 2;
       ctx.strokeRect(r.x, r.y, r.w, r.h);
       ctx.shadowBlur = 0;
 
       // 四角装饰
-      ctx.fillStyle = 'rgba(53, 224, 255, 0.55)';
+      ctx.fillStyle = ac;
+      ctx.globalAlpha = 0.55;
       const c = 14;
       ctx.fillRect(r.x, r.y, c, c); ctx.fillRect(r.w - c, r.y, c, c);
       ctx.fillRect(r.x, r.h - c, c, c); ctx.fillRect(r.w - c, r.h - c, c, c);
+      ctx.globalAlpha = 1;
     }
 
     function drawBullets() {
       for (const b of world.bullets) {
-        if (b.px !== undefined) {
-          ctx.strokeStyle = b.color;
-          ctx.globalAlpha = 0.45;
-          ctx.lineWidth = b.size * 0.8;
-          ctx.beginPath();
-          ctx.moveTo(b.px, b.py);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
+        const t = b.trail || [];
+        if (t.length > 1) {
+          ctx.lineCap = 'round';
+          for (let pass = 0; pass < 2; pass++) {
+            const maxW = pass === 0 ? b.size * 2.6 : b.size * 1.1;
+            const alphaMul = pass === 0 ? 0.22 : 0.5;
+            for (let i = 0; i < t.length - 1; i++) {
+              const f = (i + 1) / t.length;
+              ctx.strokeStyle = b.color;
+              ctx.globalAlpha = alphaMul * f;
+              ctx.lineWidth = Math.max(0.5, maxW * f);
+              ctx.beginPath();
+              ctx.moveTo(t[i].x, t[i].y);
+              ctx.lineTo(t[i + 1].x, t[i + 1].y);
+              ctx.stroke();
+            }
+          }
+          ctx.lineCap = 'butt';
           ctx.globalAlpha = 1;
         }
         ctx.fillStyle = b.color;
@@ -1895,11 +2008,19 @@ const Game = (() => {
           ctx.restore();
           ctx.globalAlpha = 1;
         } else if (q.kind === 'dash') {
-          ctx.globalAlpha = a * 0.5;
-          ctx.fillStyle = q.color;
+          const streak = Math.max(1, q.size * (1.4 - a * 0.8));
+          ctx.globalAlpha = a * 0.55;
+          ctx.strokeStyle = q.color;
+          ctx.lineWidth = streak;
+          ctx.lineCap = 'round';
           ctx.beginPath();
-          ctx.arc(q.x, q.y, q.size * (1.6 - a), 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(q.x, q.y);
+          ctx.lineTo(
+            q.x - Math.cos(q.angle || 0) * streak * 2.6,
+            q.y - Math.sin(q.angle || 0) * streak * 2.6
+          );
+          ctx.stroke();
+          ctx.lineCap = 'butt';
           ctx.globalAlpha = 1;
         }
       }
@@ -2023,6 +2144,26 @@ const Game = (() => {
       ctx.globalAlpha = 1;
     }
 
+    function drawDashGhosts() {
+      for (const g of world.dashGhosts) {
+        const a = utils.clamp(g.life / g.maxLife, 0, 1);
+        ctx.save();
+        ctx.translate(g.x, g.y);
+        ctx.rotate(g.angle);
+        ctx.globalAlpha = a * 0.4;
+        ctx.fillStyle = g.color;
+        ctx.beginPath();
+        ctx.moveTo(16, 0);
+        ctx.lineTo(-10, 11);
+        ctx.lineTo(-6, 0);
+        ctx.lineTo(-10, -11);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     function drawTracers() {
       for (const t of world.tracers) {
         const a = utils.clamp(t.life / 0.09, 0, 1);
@@ -2137,7 +2278,7 @@ const Game = (() => {
       ctx.fillStyle = 'rgba(4, 8, 14, 0.82)';
       ctx.fillRect(0, 0, view.w, view.h);
       const panelW = 460;
-      const panelH = 60 + ui.items.length * 52 + 30;
+      const panelH = 60 + (ui.panel === 'parts' ? 124 : 0) + ui.items.length * 52 + 30;
       const px = view.w / 2 - panelW / 2;
       const py = view.h / 2 - panelH / 2;
       ctx.fillStyle = '#111827';
@@ -2157,7 +2298,29 @@ const Game = (() => {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillText('ESC / B 关闭', view.w / 2, py + 48);
 
+      if (ui.panel === 'parts' && ui.loadout) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.font = '12px Consolas, monospace';
+        ctx.fillText('当前武器（点击槽位可卸下）', px + 16, py + 70);
+        ui.loadout.forEach((entry, idx) => {
+          const chip = ui.loadoutChips[idx];
+          if (!chip) return;
+          ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+          ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
+          ctx.fillStyle = entry.part.color;
+          ctx.fillRect(chip.x, chip.y, 4, chip.h);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '12px Consolas, monospace';
+          ctx.fillText(
+            entry.slotName + ': ' + (entry.part.id === 'none_mod' ? '空' : entry.part.name),
+            chip.x + 10, chip.y + 18
+          );
+        });
+      }
+
       for (const row of ui.items) {
+        ctx.globalAlpha = row.denied ? 0.4 : 1;
         ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
         ctx.fillRect(row.x, row.y, row.w, row.h);
         ctx.fillStyle = row.part.color;
@@ -2165,7 +2328,7 @@ const Game = (() => {
         ctx.fillStyle = '#ffffff';
         ctx.font = '13px Consolas, monospace';
         ctx.textAlign = 'left';
-        ctx.fillText(row.part.name, row.x + 14, row.y + 18);
+        ctx.fillText('[' + (row.slotName || '') + '] ' + row.part.name, row.x + 14, row.y + 18);
         const rc = partsEngine.rarityColors[row.part.rarity];
         ctx.fillStyle = rc;
         ctx.fillText(partsEngine.rarityNames[row.part.rarity], row.x + 14, row.y + 34);
@@ -2178,14 +2341,15 @@ const Game = (() => {
           ctx.textAlign = 'right';
           ctx.fillText('◆ ' + row.price, row.x + row.w - 14, row.y + 26);
         } else if (row.action === 'equip') {
-          ctx.fillStyle = 'rgba(53,224,255,0.8)';
+          ctx.fillStyle = row.denied ? '#ff4d5e' : 'rgba(53,224,255,0.8)';
           ctx.textAlign = 'right';
-          ctx.fillText('装备', row.x + row.w - 14, row.y + 26);
+          ctx.fillText(row.denied ? '已装备同类' : '装备', row.x + row.w - 14, row.y + 26);
         } else if (row.action === 'take') {
           ctx.fillStyle = '#7ef29a';
           ctx.textAlign = 'right';
           ctx.fillText('领取', row.x + row.w - 14, row.y + 26);
         }
+        ctx.globalAlpha = 1;
       }
       ctx.textAlign = 'left';
     }
@@ -2193,16 +2357,19 @@ const Game = (() => {
     function drawScanline() {
       const r = world.room;
       const y = ((world.time * 140) % (r.h)) + r.y;
-      ctx.fillStyle = 'rgba(53, 224, 255, 0.05)';
+      ctx.fillStyle = accent();
+      ctx.globalAlpha = 0.05;
       ctx.fillRect(r.x, y, r.w, 2);
+      ctx.globalAlpha = 1;
     }
 
     function drawDoors() {
       const r = world.room;
       if (!r.cleared) return;
       const dw = 80, dh = 14;
-      ctx.fillStyle = '#35e0ff';
-      ctx.shadowColor = '#35e0ff';
+      const ac = accent();
+      ctx.fillStyle = ac;
+      ctx.shadowColor = ac;
       ctx.shadowBlur = 10;
       if (r.doors.n) ctx.fillRect(r.w / 2 - dw / 2, r.y, dw, dh);
       if (r.doors.s) ctx.fillRect(r.w / 2 - dw / 2, r.h - dh, dw, dh);
@@ -2289,8 +2456,8 @@ const Game = (() => {
       ctx.font = '14px Consolas, monospace';
       ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.fillText('房间 ' + world.mapInfo.clearedRooms + '/' + world.mapInfo.totalRooms, view.w / 2, 24);
+      ctx.fillStyle = accent();
+      ctx.fillText('第 ' + world.layer + ' 层 · 房间 ' + world.mapInfo.clearedRooms + '/' + world.mapInfo.totalRooms, view.w / 2, 24);
 
       if (world.stats.combo > 1 && world.time - world.stats.comboT < 0.5) {
         ctx.fillStyle = '#ffd166';
@@ -2318,16 +2485,19 @@ const Game = (() => {
     function drawMinimap() {
       if (!world.map) return;
       const cell = 14, gap = 2;
-      const mx = view.w - 14 - 3 * (cell + gap);
+      const gw = world.map.gridW || 3;
+      const gh = world.map.gridH || 3;
+      const mx = view.w - 14 - gw * (cell + gap);
       const my = 40;
       ctx.textAlign = 'right';
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.font = '10px Consolas, monospace';
-      ctx.fillText('地图', view.w - 14, my - 6);
+      ctx.fillText('第' + world.layer + '层', view.w - 14, my - 6);
       for (const room of world.map.rooms) {
         const px = mx + room.x * (cell + gap);
         const py = my + room.y * (cell + gap);
-        ctx.fillStyle = room.visited ? (MINIMAP_COLORS[room.type] || '#666666') : 'rgba(255,255,255,0.14)';
+        const color = room.type === 'start' ? accent() : (MINIMAP_COLORS[room.type] || '#666666');
+        ctx.fillStyle = room.visited ? color : 'rgba(255,255,255,0.14)';
         ctx.fillRect(px, py, cell, cell);
         if (world.mapInfo.roomPos.x === room.x && world.mapInfo.roomPos.y === room.y) {
           ctx.strokeStyle = '#ffffff';

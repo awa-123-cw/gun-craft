@@ -344,6 +344,7 @@ test('精英护盾：先破盾再扣血', () => {
 
 test('Boss 阶段随血量切换且死亡进入胜利结算', () => {
   const { game } = makeGame();
+  game.world.maxLayers = 1; // 最终层 Boss 才胜利
   const b = game.spawnEnemy('boss', 750, 550, 1);
   game.world.enemies.push(b);
   game.damageEnemy(b, 1, 0, {});
@@ -354,6 +355,78 @@ test('Boss 阶段随血量切换且死亡进入胜利结算', () => {
   b.hp = 1;
   game.damageEnemy(b, 5, 0, {});
   assert.strictEqual(game.state.screen, 'win', 'Boss 死亡应胜利');
+});
+
+test('第一层 Boss 击败后进入第二层而非胜利', () => {
+  const { game } = makeGame();
+  game.beginRun();
+  const b = game.spawnEnemy('boss', 750, 550, 1);
+  b.hp = 1;
+  game.world.enemies.push(b);
+  game.damageEnemy(b, 5, 0, {});
+  game.update(0.1); // 消耗 hit-stop
+  game.update(0.2);
+  game.update(0.5); // 完成层间过渡
+  game.update(0.2);
+  assert.strictEqual(game.state.screen, 'playing', '第一层 Boss 不应直接胜利');
+  assert.strictEqual(game.world.layer, 2, '应进入第二层');
+  assert.ok(game.world.map.gridW === 4, '第二层应为 4x4 迷宫');
+});
+
+test('第二层迷宫生成：更大网格且连通', () => {
+  const { Game } = makeGame();
+  const map = Game.map.generate(77, 2);
+  assert.strictEqual(map.gridW, 4);
+  assert.strictEqual(map.gridH, 4);
+  assert.ok(map.rooms.length >= 9, '第二层房间应更多');
+  const visited = new Set();
+  const q = [[map.start.x, map.start.y]];
+  visited.add(map.start.x + ',' + map.start.y);
+  while (q.length) {
+    const [x, y] = q.shift();
+    const room = map.rooms.find(r => r.x === x && r.y === y);
+    for (const d of ['n', 'e', 's', 'w']) {
+      if (!room.doors[d]) continue;
+      const nx = x + (d === 'e' ? 1 : d === 'w' ? -1 : 0);
+      const ny = y + (d === 's' ? 1 : d === 'n' ? -1 : 0);
+      const k = nx + ',' + ny;
+      if (!visited.has(k)) { visited.add(k); q.push([nx, ny]); }
+    }
+  }
+  assert.ok(visited.has(map.boss.x + ',' + map.boss.y), '第二层 Boss 必须可达');
+});
+
+test('装备新部件时旧部件自动卸下回背包', () => {
+  const { game } = makeGame();
+  const old = game.gun().parts.ammo;
+  const newPart = { id: 'pierce_ammo', slot: 'ammo', name: '穿甲弹', rarity: 2, color: '#cfd8ff', affixes: [] };
+  game.world.inventory.push(newPart);
+  game.equipPart(newPart);
+  assert.strictEqual(game.gun().parts.ammo.id, 'pierce_ammo', '新弹药应装上');
+  assert.ok(game.world.inventory.includes(old), '旧弹药应卸下回背包');
+});
+
+test('拼装面板标记已装备部件（loadout）', () => {
+  const { game } = makeGame();
+  game.openPanel('parts');
+  assert.strictEqual(game.ui.loadout.length, 3, '应展示三槽当前装备');
+  assert.ok(game.ui.loadout.every(x => x.part && x.slot), '每槽包含部件信息');
+});
+
+test('同 ID 部件不允许重复装备（UI 拒绝）', () => {
+  const { game } = makeGame();
+  const dup = {
+    id: game.gun().parts.ammo.id, slot: 'ammo',
+    name: game.gun().parts.ammo.name, rarity: 0, color: '#ffd166', affixes: []
+  };
+  game.world.inventory.push(dup);
+  game.openPanel('parts');
+  const row = game.ui.items.find(r => r.part === dup);
+  assert.ok(row && row.denied, '同 ID 行应标记拒绝');
+  const before = game.gun().parts.ammo.id;
+  game.uiClick(row.x + 5, row.y + 5);
+  assert.strictEqual(game.gun().parts.ammo.id, before, '同 ID 装备应被拒绝');
+  assert.ok(game.world.inventory.includes(dup), '部件不应被消耗');
 });
 
 test('屏幕状态机与重新开始', () => {
