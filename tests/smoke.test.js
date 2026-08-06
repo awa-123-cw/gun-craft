@@ -166,3 +166,40 @@ test('橙射手敌人开火与玩家受伤', () => {
   for (let i = 280; i < 420; i++) game.update(1 / 120);
   assert.ok(game.world.player.hp < 100, '玩家应被敌弹击中掉血');
 });
+
+test('部件库齐全：枪身5 弹药6 配件6', () => {
+  const { Game } = makeGame();
+  assert.strictEqual(Object.keys(Game.PARTS.body).length, 5);
+  assert.strictEqual(Object.keys(Game.PARTS.ammo).length, 6);
+  const modCount = Object.keys(Game.PARTS.mod).filter(id => id !== 'none_mod').length;
+  assert.strictEqual(modCount, 6);
+});
+
+test('词条随稀有度增加且装备后影响数值', () => {
+  const { Game, game } = makeGame();
+  const aff = Game.partsEngine.rollAffixes(4);
+  assert.ok(aff.length >= 2 && aff.length <= 3, '史诗部件至少 2 条词条');
+  const part = Game.partsEngine.rollPart();
+  game.equipPart(part);
+  assert.strictEqual(game.gun().parts[part.slot].id, part.id, '部件应装备到对应槽');
+  assert.ok(game.gun().stats.damage > 0);
+});
+
+test('击杀掉落与商店购买', () => {
+  const { Game, game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  e.hp = 1;
+  e.scale = 3;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 10, 0, {});
+  assert.ok(game.world.pickups.some(p => p.kind === 'part'), '精英必掉部件');
+  game.world.shopOffers = [Game.partsEngine.rollPart()];
+  game.world.shopPrices = [20];
+  game.world.coins = 50;
+  game.openPanel('shop');
+  assert.ok(game.ui.items.length >= 1, '商店应展示商品');
+  const offer = game.ui.items[0];
+  game.uiClick(offer.x + 5, offer.y + 5);
+  assert.strictEqual(game.world.coins, 30, '购买扣钱');
+  assert.ok(game.world.inventory.length >= 1, '购买部件入背包');
+});
