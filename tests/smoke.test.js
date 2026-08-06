@@ -19,7 +19,7 @@ function buildContext() {
   const canvas = { width: 960, height: 540, style: {}, getContext: () => ctx };
   const audioCtx = {
     currentTime: 0, state: 'running', destination: {},
-    createOscillator: () => ({ connect: noop, start: noop, stop: noop, type: 'sine', frequency: { setValueAtTime: noop } }),
+    createOscillator: () => ({ connect: noop, start: noop, stop: noop, type: 'sine', frequency: { setValueAtTime: noop, exponentialRampToValueAtTime: noop, linearRampToValueAtTime: noop } }),
     createGain: () => ({ connect: noop, gain: { setValueAtTime: noop, linearRampToValueAtTime: noop, exponentialRampToValueAtTime: noop } }),
     createBuffer: () => ({ getChannelData: () => new Float32Array(16) }),
     createBufferSource: () => ({ connect: noop, start: noop, buffer: null }),
@@ -89,4 +89,34 @@ test('固定时间步与相机跟随', () => {
   game.update(0.5); // 0.5s 应拆成 60 步
   assert.ok(game.camera.x > 900, '相机应跟随玩家（存在插值或直接吸附均可）');
   assert.strictEqual(game.world.time, 0.5);
+});
+
+test('按住射击生成子弹并消耗弹匣', () => {
+  const { game } = makeGame();
+  const before = game.world.bullets.length;
+  game.input.mouse.down = true;
+  game.update(1 / 60);
+  assert.ok(game.world.bullets.length > before, '应生成子弹');
+  assert.strictEqual(game.gun().mag, game.gun().stats.magSize - 1);
+});
+
+test('射速冷却与换弹', () => {
+  const { game } = makeGame();
+  const g = game.gun();
+  g.mag = 0;
+  g.reloading = false;
+  game.input.keys.add('KeyR');
+  game.update(1 / 60);
+  assert.ok(g.reloading, 'R 触发换弹');
+  for (let i = 0; i < 200; i++) game.update(1 / 120);
+  assert.strictEqual(g.mag, g.stats.magSize, '换弹完成后弹匣满');
+});
+
+test('开火时产生枪口火光与弹壳反馈', () => {
+  const { game } = makeGame();
+  game.input.mouse.down = true;
+  game.update(1 / 60);
+  assert.ok(game.world.particles.some(p => p.kind === 'muzzle'), '应产生枪口火光粒子');
+  assert.ok(game.world.casings.length > 0, '应产生弹壳');
+  assert.ok(game.gun().stats.fireRate > 0);
 });

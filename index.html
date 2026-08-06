@@ -48,15 +48,122 @@ const utils = (() => {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  return { clamp, lerp, rand, randInt, distance, rectsOverlap, mulberry32 };
+  function swapRemove(arr, i) {
+    arr[i] = arr[arr.length - 1];
+    arr.pop();
+  }
+  return { clamp, lerp, rand, randInt, distance, rectsOverlap, mulberry32, swapRemove };
 })();
 
 // ===== world =====
 const Game = (() => {
-  const VERSION = '0.2.0';
+  const VERSION = '0.3.0';
   const STEP = 1 / 120;
   const ROOM_W = 1500;
   const ROOM_H = 1100;
+
+  // ===== PARTS（最小集，Task 5 扩充）=====
+  const PARTS = {
+    body: {
+      pistol_body: { id: 'pistol_body', slot: 'body', name: '标准枪身', rarity: 0, color: '#35e0ff',
+        base: { fireRate: 8, damage: 14, magSize: 12, reloadTime: 1.0, spread: 0.05 } }
+    },
+    ammo: {
+      standard_ammo: { id: 'standard_ammo', slot: 'ammo', name: '标准弹药', rarity: 0, color: '#ffd166',
+        base: { pellet: 1, pierce: 0 } }
+    },
+    mod: {
+      none_mod: { id: 'none_mod', slot: 'mod', name: '空配件槽', rarity: 0, color: '#888888', base: {} }
+    }
+  };
+
+  function buildGun(bodyId, ammoId, modId) {
+    const b = PARTS.body[bodyId];
+    const a = PARTS.ammo[ammoId];
+    const m = PARTS.mod[modId];
+    const stats = {
+      fireRate: b.base.fireRate,
+      damage: b.base.damage,
+      magSize: b.base.magSize,
+      reloadTime: b.base.reloadTime,
+      spread: b.base.spread,
+      pellet: (a && a.base.pellet) || 1,
+      pierce: (a && a.base.pierce) || 0,
+      bulletSpeed: 750,
+      behaviors: []
+    };
+    return {
+      slots: { body: bodyId, ammo: ammoId, mod: modId },
+      stats,
+      mag: stats.magSize,
+      reloading: false,
+      reloadT: 0,
+      cooldown: 0
+    };
+  }
+
+  // ===== audio（WebAudio 合成）=====
+  const audio = (() => {
+    let actx = null;
+    function ac() {
+      if (!actx && typeof AudioContext !== 'undefined') {
+        try { actx = new AudioContext(); } catch (e) { actx = null; }
+      }
+      return actx;
+    }
+    function tone(f0, f1, dur, type, vol, delay) {
+      const a = ac();
+      if (!a) return;
+      const t0 = a.currentTime + (delay || 0);
+      const o = a.createOscillator();
+      o.type = type || 'sine';
+      o.frequency.setValueAtTime(Math.max(1, f0), t0);
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+      const g = a.createGain();
+      g.gain.setValueAtTime(vol, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      o.connect(g);
+      g.connect(a.destination);
+      o.start(t0);
+      o.stop(t0 + dur);
+    }
+    function noise(dur, vol, cutoff) {
+      const a = ac();
+      if (!a) return;
+      const sr = a.sampleRate || 44100;
+      const len = Math.max(1, Math.floor(sr * dur));
+      const buf = a.createBuffer(1, len, sr);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const src = a.createBufferSource();
+      src.buffer = buf;
+      const g = a.createGain();
+      g.gain.setValueAtTime(vol, a.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+      let node = src;
+      if (cutoff && a.createFilter) {
+        const f = a.createFilter();
+        f.frequency.setValueAtTime(cutoff, a.currentTime);
+        src.connect(f);
+        node = f;
+      }
+      node.connect(g);
+      g.connect(a.destination);
+      src.start();
+    }
+    function play(name) {
+      const a = ac();
+      if (!a) return;
+      if (a.state === 'suspended') { try { a.resume(); } catch (e) {} }
+      switch (name) {
+        case 'pistol':
+          noise(0.05, 0.45, 3200);
+          tone(240 + Math.random() * 20, 70, 0.07, 'square', 0.22);
+          break;
+      }
+    }
+    return { play };
+  })();
 
   function createGame(canvas) {
     const world = {
@@ -65,6 +172,8 @@ const Game = (() => {
         hp: 100, maxHp: 100, radius: 14, speed: 260,
         aimAngle: 0, invuln: 0, recoil: 0
       },
+      guns: [buildGun('pistol_body', 'standard_ammo', 'none_mod'), buildGun('pistol_body', 'standard_ammo', 'none_mod')],
+      activeGun: 0,
       enemies: [],
       bullets: [],
       particles: [],
@@ -84,6 +193,53 @@ const Game = (() => {
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
     const ctx = canvas.getContext('2d');
     let acc = 0, last = 0, raf = 0;
+
+    function gun() { return world.guns[world.activeGun]; }
+    function rebuildGun(i) {
+      const g = world.guns[i];
+      const ng = buildGun(g.slots.body, g.slots.ammo, g.slots.mod);
+      ng.mag = Math.min(g.mag, ng.stats.magSize);
+      world.guns[i] = ng;
+    }
+
+    // ===== fx（粒子/弹壳/曳光，对象池）=====
+    const fx = {
+      poolLimit: 1500,
+      spawn(o) {
+        if (world.particles.length >= fx.poolLimit) world.particles.shift();
+        world.particles.push(Object.assign({ maxLife: o.life, rot: 0, vr: 0 }, o));
+      },
+      muzzle(x, y, angle, color) {
+        for (let i = 0; i < 5; i++) {
+          const a = angle + (Math.random() - 0.5) * 0.9;
+          const sp = 130 + Math.random() * 200;
+          fx.spawn({
+            kind: 'muzzle', x, y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            life: 0.05 + Math.random() * 0.045,
+            color, size: 3 + Math.random() * 4
+          });
+        }
+      },
+      casing(x, y, angle) {
+        world.casings.push({
+          x, y,
+          vx: Math.cos(angle + Math.PI / 2) * 130 + utils.rand(-40, 40),
+          vy: Math.sin(angle + Math.PI / 2) * 130 - 90,
+          rot: Math.random() * Math.PI * 2,
+          vr: utils.rand(-12, 12),
+          life: 1.4
+        });
+      },
+      smoke(x, y) {
+        fx.spawn({
+          kind: 'smoke', x: x + utils.rand(-3, 3), y: y + utils.rand(-3, 3),
+          vx: utils.rand(-15, 15), vy: utils.rand(-15, 15),
+          life: 0.35 + Math.random() * 0.2,
+          color: '#8fa6b8', size: 4
+        });
+      }
+    };
 
     function setScreen(name) { state.screen = name; }
 
@@ -130,9 +286,128 @@ const Game = (() => {
       p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
       p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
 
+      updateGun(dt);
+      updateBullets(dt);
+      updateParticles(dt);
+      updateCasings(dt);
+      updateTracers(dt);
+
       camera.x += (p.x - camera.x) * Math.min(1, 10 * dt);
       camera.y += (p.y - camera.y) * Math.min(1, 10 * dt);
       world.time += dt;
+    }
+
+    function fireOnce(g) {
+      const p = world.player;
+      const muzzleX = p.x + Math.cos(p.aimAngle) * 22;
+      const muzzleY = p.y + Math.sin(p.aimAngle) * 22;
+      const baseAngle = p.aimAngle + (Math.random() - 0.5) * 2 * g.stats.spread;
+      for (let i = 0; i < g.stats.pellet; i++) {
+        const a = baseAngle + (i - (g.stats.pellet - 1) / 2) * 0.04;
+        world.bullets.push({
+          x: muzzleX, y: muzzleY,
+          vx: Math.cos(a) * g.stats.bulletSpeed,
+          vy: Math.sin(a) * g.stats.bulletSpeed,
+          damage: g.stats.damage,
+          pierce: g.stats.pierce,
+          friendly: true,
+          life: 1.2,
+          color: '#ffd166',
+          size: 3,
+          kind: 'standard'
+        });
+      }
+      fx.muzzle(muzzleX, muzzleY, p.aimAngle, '#ffd166');
+      fx.casing(p.x, p.y, p.aimAngle);
+      fx.smoke(muzzleX, muzzleY);
+      world.tracers.push({
+        x0: muzzleX, y0: muzzleY,
+        x1: muzzleX + Math.cos(p.aimAngle) * 46,
+        y1: muzzleY + Math.sin(p.aimAngle) * 46,
+        life: 0.09, color: '#ffd166'
+      });
+      p.recoil = Math.min(1, p.recoil + 0.35);
+      audio.play('pistol');
+    }
+
+    function updateGun(dt) {
+      const p = world.player;
+      if (input.wheelDelta !== 0) {
+        world.activeGun = (world.activeGun + (input.wheelDelta > 0 ? 1 : -1) + 2) % 2;
+        input.wheelDelta = 0;
+      }
+      if (input.pressedSet.has('Digit1')) world.activeGun = 0;
+      if (input.pressedSet.has('Digit2')) world.activeGun = 1;
+
+      const g = gun();
+      g.cooldown -= dt;
+      if (g.reloading) {
+        g.reloadT -= dt;
+        if (g.reloadT <= 0) { g.reloading = false; g.mag = g.stats.magSize; }
+      }
+      if ((input.pressedSet.has('KeyR') || input.keys.has('KeyR')) && !g.reloading && g.mag < g.stats.magSize) {
+        g.reloading = true;
+        g.reloadT = g.stats.reloadTime;
+      }
+      if (input.mouse.down && !g.reloading && g.mag > 0 && g.cooldown <= 0) {
+        g.cooldown = 1 / g.stats.fireRate;
+        g.mag--;
+        fireOnce(g);
+      }
+      p.recoil *= Math.pow(0.0001, dt);
+    }
+
+    function updateBullets(dt) {
+      const r = world.room;
+      for (let i = world.bullets.length - 1; i >= 0; i--) {
+        const b = world.bullets[i];
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.life -= dt;
+        if (b.life <= 0 || b.x < r.x - 40 || b.x > r.w + 40 || b.y < r.y - 40 || b.y > r.h + 40) {
+          utils.swapRemove(world.bullets, i);
+        }
+      }
+    }
+
+    function updateParticles(dt) {
+      for (let i = world.particles.length - 1; i >= 0; i--) {
+        const q = world.particles[i];
+        q.life -= dt;
+        if (q.life <= 0) { utils.swapRemove(world.particles, i); continue; }
+        const damp = Math.exp(-3 * dt);
+        q.vx *= damp;
+        q.vy *= damp;
+        q.x += q.vx * dt;
+        q.y += q.vy * dt;
+        if (q.kind === 'smoke') q.size += 30 * dt;
+      }
+    }
+
+    function updateCasings(dt) {
+      const r = world.room;
+      for (let i = world.casings.length - 1; i >= 0; i--) {
+        const c = world.casings[i];
+        c.life -= dt;
+        if (c.life <= 0) { utils.swapRemove(world.casings, i); continue; }
+        c.vy += 620 * dt;
+        c.x += c.vx * dt;
+        c.y += c.vy * dt;
+        c.vx *= Math.exp(-2 * dt);
+        if (c.y > r.h - 4) {
+          c.y = r.h - 4;
+          c.vy *= -0.35;
+          c.vx *= 0.7;
+        }
+        c.rot += c.vr * dt;
+      }
+    }
+
+    function updateTracers(dt) {
+      for (let i = world.tracers.length - 1; i >= 0; i--) {
+        world.tracers[i].life -= dt;
+        if (world.tracers[i].life <= 0) utils.swapRemove(world.tracers, i);
+      }
     }
 
     // ---------- render ----------
@@ -144,6 +419,10 @@ const Game = (() => {
       ctx.translate(view.w / 2 - camera.x, view.h / 2 - camera.y);
       drawRoom();
       drawScanline();
+      drawBullets();
+      drawCasings();
+      drawParticles();
+      drawTracers();
       drawPlayer();
       ctx.restore();
       drawHUD();
@@ -175,6 +454,71 @@ const Game = (() => {
       ctx.fillRect(r.x, r.h - c, c, c); ctx.fillRect(r.w - c, r.h - c, c, c);
     }
 
+    function drawBullets() {
+      for (const b of world.bullets) {
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawCasings() {
+      for (const c of world.casings) {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate(c.rot);
+        ctx.globalAlpha = utils.clamp(c.life / 0.4, 0, 1);
+        ctx.fillStyle = '#d9a441';
+        ctx.fillRect(-3, -1.5, 6, 3);
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawParticles() {
+      for (const q of world.particles) {
+        const a = utils.clamp(q.life / q.maxLife, 0, 1);
+        if (q.kind === 'muzzle') {
+          ctx.globalAlpha = a * 0.35;
+          ctx.fillStyle = q.color;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.size * 2.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = a;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.size * a, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else if (q.kind === 'smoke') {
+          ctx.globalAlpha = a * 0.16;
+          ctx.fillStyle = q.color;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
+    function drawTracers() {
+      for (const t of world.tracers) {
+        const a = utils.clamp(t.life / 0.09, 0, 1);
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = t.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(t.x0, t.y0);
+        ctx.lineTo(t.x1, t.y1);
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(t.x1, t.y1, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
     function drawScanline() {
       const r = world.room;
       const y = ((world.time * 140) % (r.h)) + r.y;
@@ -184,6 +528,8 @@ const Game = (() => {
 
     function drawPlayer() {
       const p = world.player;
+      const g = gun();
+      const bodyColor = PARTS.body[g.slots.body] ? PARTS.body[g.slots.body].color : '#35e0ff';
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.aimAngle);
@@ -206,18 +552,27 @@ const Game = (() => {
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = '#9adcff';
+      ctx.fillStyle = bodyColor;
       ctx.fillRect(10, -2.5, 16, 5);
-      ctx.fillStyle = '#35e0ff';
-      ctx.fillRect(0, -1, 14, 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.fillRect(12, -1, 12, 2);
       ctx.restore();
     }
 
     function drawHUD() {
+      const g = gun();
       ctx.fillStyle = 'rgba(53, 224, 255, 0.7)';
       ctx.font = '14px Consolas, monospace';
       ctx.textAlign = 'left';
       ctx.fillText('T ' + world.time.toFixed(1) + 's', 14, 24);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = g.mag === 0 ? '#ff4d5e' : '#ffd166';
+      ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, view.h - 18);
+      if (g.reloading) {
+        ctx.fillStyle = 'rgba(255, 209, 102, 0.7)';
+        const w = 120 * (1 - g.reloadT / g.stats.reloadTime);
+        ctx.fillRect(view.w - 14 - w, view.h - 12, w, 4);
+      }
     }
 
     // ---------- main loop ----------
@@ -248,13 +603,14 @@ const Game = (() => {
     }
 
     return {
-      world, state, camera, input,
+      world, state, camera, input, fx,
+      gun, rebuildGun,
       update, render, start, setScreen,
       VERSION
     };
   }
 
-  return { createGame, VERSION };
+  return { createGame, PARTS, VERSION };
 })();
 
 if (typeof window !== 'undefined') window.Game = Game;
