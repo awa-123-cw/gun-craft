@@ -93,9 +93,9 @@ const Game = (() => {
       pistol_body: { id: 'pistol_body', slot: 'body', name: '标准枪身', rarity: 0, color: '#35e0ff', desc: '均衡可靠',
         base: { fireRate: 8, damage: 14, magSize: 12, reloadTime: 1.0, spread: 0.05 } },
       smg_body: { id: 'smg_body', slot: 'body', name: '冲锋枪身', rarity: 1, color: '#7ef29a', desc: '高射速压制',
-        base: { fireRate: 14, damage: 9, magSize: 25, reloadTime: 1.2, spread: 0.09 } },
+        base: { fireRate: 14, damage: 4.5, magSize: 25, reloadTime: 1.2, spread: 0.09 } },
       shotgun_body: { id: 'shotgun_body', slot: 'body', name: '霰弹枪身', rarity: 2, color: '#4dc9ff', desc: '多弹片近战',
-        base: { fireRate: 2, damage: 8, magSize: 8, reloadTime: 1.5, spread: 0.22, pellet: 6 } },
+        base: { fireRate: 2, damage: 8, magSize: 8, reloadTime: 1.5, spread: 0.22, pellet: 6, lifeMul: 0.8 } },
       sniper_body: { id: 'sniper_body', slot: 'body', name: '狙击枪身', rarity: 3, color: '#b06cff', desc: '高伤慢速',
         base: { fireRate: 1.1, damage: 65, magSize: 4, reloadTime: 1.6, spread: 0.005, pierce: 1 } },
       heavy_body: { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', desc: '大弹鼓',
@@ -399,42 +399,42 @@ const Game = (() => {
       name: '冲锋者', color: '#ff4d5e', coreColor: '#7a0d1e',
       hp: 34, radius: 18, speed: 70, dmg: 18,
       behavior: 'chase_telegraph_dash', dashSpeed: 520, telegraphT: 0.3, cooldown: 1.1,
-      engageRange: 340, shardCount: 3
+      engageRange: 340, shardCount: 3, coinTier: 1
     },
     shooter: {
       name: '射手', color: '#ff9f43', coreColor: '#7a3b00',
       hp: 22, radius: 16, speed: 60, dmg: 10,
       behavior: 'keep_distance_shoot', range: 330, fireInterval: 1.4, bulletSpeed: 260,
-      burst: 3, burstSpread: 0.09
+      burst: 3, burstSpread: 0.09, coinTier: 1
     },
     splitter: {
       name: '分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
       hp: 16, radius: 14, speed: 110, dmg: 8,
       behavior: 'splitter', splitKind: 'splitter_mini', splitCount: 2, maxGen: 1,
-      spitRange: 150, spitInterval: 1.6
+      spitRange: 150, spitInterval: 1.6, coinTier: 1
     },
     splitter_mini: {
       name: '小分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
       hp: 8, radius: 8, speed: 130, dmg: 5,
-      behavior: 'splitter', splitKind: null, splitCount: 0, maxGen: 1
+      behavior: 'splitter', splitKind: null, splitCount: 0, maxGen: 1, coinTier: 1
     },
     buzzer: {
       name: '穿梭者', color: '#4dc9ff', coreColor: '#0b3d5e',
       hp: 12, radius: 12, speed: 0, dmg: 10,
       behavior: 'buzzer', dashSpeed: 600, dashT: 0.7, waitT: 0.35,
-      dashShots: 2, dashShotSpeed: 360
+      dashShots: 2, dashShotSpeed: 360, coinTier: 2
     },
     elite: {
       name: '护卫精英', color: '#b06cff', coreColor: '#3d0f73',
       hp: 90, radius: 30, speed: 55, dmg: 20,
       behavior: 'elite', shield: 40, maxShield: 40, shieldRegen: 30,
-      dashCooldown: 2.2, telegraphT: 0.35
+      dashCooldown: 2.2, telegraphT: 0.35, coinTier: 3
     },
     boss: {
       name: '机械核心', color: '#ff3d81', coreColor: '#5c0a2e',
       hp: 840, radius: 58, speed: 38, dmg: 24,
       behavior: 'boss', ringSegs: 14, rotSpeed: 0.6,
-      burstCd: 1.8, summonCd: 10
+      burstCd: 1.8, summonCd: 10, coinTier: 5
     }
   };
 
@@ -607,6 +607,7 @@ const Game = (() => {
       shopPos: null,
       chest: null,
       coinPile: null,
+      portal: null,
       mapInfo: { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 },
       transition: { active: false, t: 0, rx: 0, ry: 0 },
       hpDelay: 100,
@@ -663,9 +664,11 @@ const Game = (() => {
     }
 
     function spawnPickup(kind, x, y, payload) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 180 + Math.random() * 140;
       world.pickups.push({
         kind, x, y,
-        vx: utils.rand(-40, 40), vy: utils.rand(-40, 40),
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
         life: 30,
         part: kind === 'part' ? payload : null,
         value: kind === 'coin' ? payload : 0
@@ -1096,7 +1099,15 @@ const Game = (() => {
           spawnPickup('medkit', e.x, e.y - 60, 0);
           setScreen('win');
         } else {
-          world.transition = { active: true, t: 0, rx: 'next', ry: 0 };
+          for (const rem of [...world.enemies]) {
+            if (rem !== e && !rem.dead) {
+              rem.dead = true;
+              fx.burst(rem.x, rem.y, rem.color, 6);
+            }
+          }
+          world.enemies.length = 0;
+          world.portal = { x: ROOM_W / 2, y: ROOM_H / 2, t: 0, active: false };
+          audio.play('door');
         }
       }
       const idx = world.enemies.indexOf(e);
@@ -1148,9 +1159,13 @@ const Game = (() => {
         return;
       }
       const r = Math.random();
-      if (r < 0.03) spawnPickup('part', e.x, e.y, partsEngine.rollPart());
+      if (r < 0.021) spawnPickup('part', e.x, e.y, partsEngine.rollPart());
       else if (r < 0.09 && world.player.hp < world.player.maxHp * 0.5) spawnPickup('medkit', e.x, e.y, 0);
-      else if (r < 0.24) spawnPickup('coin', e.x, e.y, 3);
+      else if (r < 0.336) {
+        const def = ENEMY_KINDS[e.kind] || {};
+        const tier = (def.coinTier || 1) + Math.max(0, Math.round(e.scale) - 1);
+        spawnPickup('coin', e.x, e.y, utils.randInt(1, Math.max(1, tier)));
+      }
     }
 
     function updateCombo() {
@@ -1195,6 +1210,7 @@ const Game = (() => {
       world.chest = null;
       world.chestPart = null;
       world.coinPile = null;
+      world.portal = null;
       world.mapInfo = { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 };
       world.transition.active = false;
       world.hpDelay = 100;
@@ -1318,6 +1334,11 @@ const Game = (() => {
               world.coinPile.collected = true;
               fx.floater(p.x, p.y - 30, '+' + world.coinPile.amount + ' 金币', 'crit');
               audio.play('chest');
+            } else if (world.portal && world.portal.active &&
+                utils.distance(p.x, p.y, world.portal.x, world.portal.y) < 90) {
+              world.portal = null;
+              world.transition = { active: true, t: 0, rx: 'next', ry: 0 };
+              audio.play('door');
             } else if (world.shopPos && world.shopOffers.length &&
                 utils.distance(p.x, p.y, world.shopPos.x, world.shopPos.y) < 120) {
               openPanel('shop');
@@ -1437,6 +1458,10 @@ const Game = (() => {
       updateChains(dt);
       updateDashGhosts(dt);
       updateImpactMarks(dt);
+      if (world.portal && !world.portal.active) {
+        world.portal.t += dt;
+        if (world.portal.t >= 1.2) world.portal.active = true;
+      }
 
       p.invuln -= dt;
       fx.shakePower *= Math.exp(-6 * dt);
@@ -1483,7 +1508,7 @@ const Game = (() => {
           damage: st.damage,
           pierce: st.pierce,
           friendly: true,
-          life: 1.2,
+          life: 1.2 * ((PARTS.body[g.parts.body.id].base.lifeMul) || 1),
           color: '#ffd166',
           size: 3,
           kind: 'standard',
@@ -1716,6 +1741,13 @@ const Game = (() => {
         if (k.kind === 'coin' && d < 130) {
           k.vx += (p.x - k.x) / (d || 1) * 700 * dt;
           k.vy += (p.y - k.y) / (d || 1) * 700 * dt;
+          if (Math.random() < dt * 30) {
+            fx.spawn({
+              kind: 'spark', x: k.x, y: k.y,
+              vx: utils.rand(-25, 25), vy: utils.rand(-25, 25),
+              life: 0.25, color: '#ffd166', size: 2
+            });
+          }
         }
         k.vx *= Math.exp(-3 * dt);
         k.vy *= Math.exp(-3 * dt);
@@ -1794,7 +1826,7 @@ const Game = (() => {
     }
 
     function genObstacles(room) {
-      const count = room.type === 'boss' ? 5 : room.type === 'elite' ? 3 : 2;
+      const count = room.type === 'boss' ? 12 : room.type === 'elite' ? 8 : 5;
       const list = [];
       for (let i = 0; i < count; i++) {
         for (let tries = 0; tries < 24; tries++) {
@@ -1842,6 +1874,7 @@ const Game = (() => {
       world.chest = null;
       world.chestPart = null;
       world.coinPile = null;
+      world.portal = null;
       world.shopOffers = [];
       world.shopPrices = [];
       world.shopPos = null;
@@ -1854,7 +1887,7 @@ const Game = (() => {
       room.obstacles = genObstacles(room);
       if (room.type === 'combat') {
         const layerBonus = (world.layer - 1) * 2;
-        const n = Math.min(18, (4 + Math.floor(room.depth * 0.7) + layerBonus) * 2);
+        const n = Math.min(26, (4 + Math.floor(room.depth * 0.7) + layerBonus) * 3);
         for (let i = 0; i < n; i++) {
           const rr = Math.random();
           const kind = rr < 0.4 ? 'chaser' : rr < 0.7 ? 'shooter' : rr < 0.9 ? 'splitter' : 'buzzer';
@@ -1869,7 +1902,7 @@ const Game = (() => {
         world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
         world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
       } else if (room.type === 'boss') {
-        world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2, 1 + (world.layer - 1) * 0.4));
+        world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2 - 160, 1 + (world.layer - 1) * 0.4));
       } else if (room.type === 'treasure') {
         world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
       } else if (room.type === 'coin') {
@@ -2064,6 +2097,7 @@ const Game = (() => {
       drawChains();
       drawPickups();
       drawMarkers();
+      drawPortal();
       drawEnemies();
       drawFloaters();
       drawDashGhosts();
@@ -2476,6 +2510,45 @@ const Game = (() => {
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.fillText(text, x, y);
+    }
+
+    function drawPortal() {
+      if (!world.portal) return;
+      const pr = world.portal;
+      const t = Math.min(1, pr.t / 1.2);
+      const radius = 30 + 34 * t;
+      const cx = pr.x, cy = pr.y;
+      ctx.save();
+      ctx.globalAlpha = 0.5 + 0.3 * Math.sin(world.time * 5);
+      const grad = ctx.createRadialGradient
+        ? ctx.createRadialGradient(cx, cy, 2, cx, cy, radius)
+        : null;
+      if (grad && grad.addColorStop) {
+        grad.addColorStop(0, 'rgba(53, 224, 255, ' + (0.4 * t) + ')');
+        grad.addColorStop(1, 'rgba(53, 224, 255, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (let ring = 0; ring < 2; ring++) {
+        ctx.strokeStyle = ring === 0 ? '#35e0ff' : '#b06cff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        const rot = world.time * (ring === 0 ? 2.2 : -1.6);
+        ctx.arc(cx, cy, radius * (0.55 + ring * 0.3), rot, rot + Math.PI * 1.4);
+        ctx.stroke();
+      }
+      ctx.restore();
+      if (pr.active) {
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#35e0ff';
+        ctx.font = '13px Consolas, monospace';
+        ctx.fillText('传送门已开启', cx, cy - radius - 18);
+        const p = world.player;
+        if (utils.distance(p.x, p.y, cx, cy) < 110) drawHint(cx, cy - radius - 36, 'E 进入下一层');
+      }
     }
 
     function drawPanel() {

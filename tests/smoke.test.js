@@ -357,22 +357,6 @@ test('Boss 阶段随血量切换且死亡进入胜利结算', () => {
   assert.strictEqual(game.state.screen, 'win', 'Boss 死亡应胜利');
 });
 
-test('第一层 Boss 击败后进入第二层而非胜利', () => {
-  const { game } = makeGame();
-  game.beginRun();
-  const b = game.spawnEnemy('boss', 750, 550, 1);
-  b.hp = 1;
-  game.world.enemies.push(b);
-  game.damageEnemy(b, 5, 0, {});
-  game.update(0.1); // 消耗 hit-stop
-  game.update(0.2);
-  game.update(0.5); // 完成层间过渡
-  game.update(0.2);
-  assert.strictEqual(game.state.screen, 'playing', '第一层 Boss 不应直接胜利');
-  assert.strictEqual(game.world.layer, 2, '应进入第二层');
-  assert.ok(game.world.map.gridW === 4, '第二层应为 4x4 迷宫');
-});
-
 test('第二层迷宫生成：更大网格且连通', () => {
   const { Game } = makeGame();
   const map = Game.map.generate(77, 2);
@@ -465,7 +449,74 @@ test('Boss 血量翻倍且普通战斗房怪物量翻倍', () => {
   game.startMap(777);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
-  assert.ok(game.world.enemies.length >= 8, '普通战斗房至少 8 只怪');
+  assert.ok(game.world.enemies.length >= 12, '普通战斗房至少 12 只怪（×3）');
+});
+
+test('部件掉落概率降低30%，金币概率提高且按强弱给量', () => {
+  const { game } = makeGame();
+  const orig = Math.random;
+  try {
+    Math.random = () => 0.025; // 原 3% 会掉部件，新 2.1% 不掉
+    const e = game.spawnEnemy('chaser', 100, 100, 1);
+    e.hp = 1;
+    e.scale = 1;
+    game.world.enemies.push(e);
+    game.damageEnemy(e, 5, 0, {});
+    assert.ok(!game.world.pickups.some(p => p.kind === 'part'), '2.5% 不应再掉部件');
+    const coins = game.world.pickups.filter(p => p.kind === 'coin');
+    assert.ok(coins.length > 0, '应掉落金币');
+    assert.ok(coins.every(c => c.value === 1), '普通怪金币应为 1');
+  } finally {
+    Math.random = orig;
+  }
+});
+
+test('冲锋枪伤害降低50%且霰弹射程降低20%', () => {
+  const { Game } = makeGame();
+  assert.strictEqual(Game.PARTS.body.smg_body.base.damage, 4.5, '冲锋枪伤害 9→4.5');
+  assert.strictEqual(Game.PARTS.body.shotgun_body.base.lifeMul, 0.8, '霰弹射程 -20%');
+});
+
+test('进入 Boss 房玩家不与 Boss 重叠', () => {
+  const { game } = makeGame();
+  game.startMap(555);
+  game.enterRoom(game.world.map.boss.x, game.world.map.boss.y);
+  const b = game.world.enemies[0];
+  const d = Math.hypot(game.world.player.x - b.x, game.world.player.y - b.y);
+  assert.ok(d > game.world.player.radius + b.radius, '玩家与 Boss 不应重叠');
+});
+
+test('击败 Boss 后出现传送门，按 E 进入下一层', () => {
+  const { game } = makeGame();
+  game.beginRun();
+  const b = game.spawnEnemy('boss', 750, 390, 1);
+  b.hp = 1;
+  game.world.enemies.push(b);
+  game.damageEnemy(b, 5, 0, {});
+  game.update(0.1);
+  game.update(0.2); // 消耗 hit-stop
+  assert.ok(game.world.portal, '应出现传送门');
+  assert.strictEqual(game.world.layer, 1, '未按 E 前不应进下一层');
+  for (let i = 0; i < 40; i++) game.update(0.05); // 传送门生成动画
+  assert.ok(game.world.portal.active, '传送门应激活');
+  game.world.player.x = game.world.portal.x + 10;
+  game.world.player.y = game.world.portal.y;
+  game.input.pressedSet.add('KeyE');
+  game.update(0.1);
+  game.update(0.2);
+  game.update(0.5);
+  assert.strictEqual(game.world.layer, 2, '按 E 后应进入第二层');
+  assert.strictEqual(game.state.screen, 'playing');
+});
+
+test('掉落物向四周飞溅且金币磁吸带拖尾', () => {
+  const { game } = makeGame();
+  game.spawnPickup('coin', 100, 100, 3);
+  const k = game.world.pickups[0];
+  assert.ok(Math.hypot(k.vx, k.vy) > 120, '掉落物应快速飞溅');
+  game.spawnPickup('coin', game.world.player.x + 60, game.world.player.y, 3);
+  for (let i = 0; i < 30; i++) game.update(1 / 120);
+  assert.ok(game.world.particles.some(p => p.kind === 'spark'), '金币磁吸应有拖尾粒子');
 });
 
 test('障碍物阻挡子弹与角色', () => {
