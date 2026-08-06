@@ -53,11 +53,18 @@ const utils = (() => {
 
 // ===== world =====
 const Game = (() => {
-  const VERSION = '0.1.0';
+  const VERSION = '0.2.0';
+  const STEP = 1 / 120;
+  const ROOM_W = 1500;
+  const ROOM_H = 1100;
 
   function createGame(canvas) {
     const world = {
-      player: { x: 0, y: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, radius: 14, speed: 260 },
+      player: {
+        x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
+        hp: 100, maxHp: 100, radius: 14, speed: 260,
+        aimAngle: 0, invuln: 0, recoil: 0
+      },
       enemies: [],
       bullets: [],
       particles: [],
@@ -66,27 +73,178 @@ const Game = (() => {
       floaters: [],
       tracers: [],
       impactMarks: [],
-      room: { id: 0, type: 'start', x: 0, y: 0, w: 1500, h: 1100, cleared: false, doors: { n: false, e: false, s: false, w: false } },
+      room: { id: 0, type: 'start', x: 0, y: 0, w: ROOM_W, h: ROOM_H, cleared: false, doors: { n: false, e: false, s: false, w: false } },
       map: null,
       coins: 0,
       time: 0
     };
     const state = { screen: 'start', paused: false };
-    const camera = { x: 0, y: 0 };
+    const camera = { x: world.player.x, y: world.player.y };
     const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false }, wheelDelta: 0 };
+    const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
+    const ctx = canvas.getContext('2d');
+    let acc = 0, last = 0, raf = 0;
 
     function setScreen(name) { state.screen = name; }
 
+    // ---------- input ----------
+    function onKeyDown(e) {
+      if (!e.repeat) { input.keys.add(e.code); input.pressedSet.add(e.code); }
+    }
+    function onKeyUp(e) { input.keys.delete(e.code); }
+    function onMouseMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      input.mouse.x = e.clientX - rect.left;
+      input.mouse.y = e.clientY - rect.top;
+    }
+    function onMouseDown(e) { if (e.button === 0) input.mouse.down = true; }
+    function onMouseUp(e) { if (e.button === 0) input.mouse.down = false; }
+    function onWheel(e) { input.wheelDelta += e.deltaY; e.preventDefault(); }
+    function onBlur() { input.keys.clear(); input.pressedSet.clear(); input.mouse.down = false; }
+    function onResize() {
+      const dpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+      view.w = canvas.clientWidth || window.innerWidth || 960;
+      view.h = canvas.clientHeight || window.innerHeight || 540;
+      canvas.width = Math.round(view.w * dpr);
+      canvas.height = Math.round(view.h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // ---------- update ----------
     function update(dt) {
+      const p = world.player;
+      const mx = input.mouse.x + camera.x - view.w / 2;
+      const my = input.mouse.y + camera.y - view.h / 2;
+      p.aimAngle = Math.atan2(my - p.y, mx - p.x);
+
+      let dx = 0, dy = 0;
+      if (input.keys.has('KeyW')) dy -= 1;
+      if (input.keys.has('KeyS')) dy += 1;
+      if (input.keys.has('KeyA')) dx -= 1;
+      if (input.keys.has('KeyD')) dx += 1;
+      if (dx || dy) {
+        const l = Math.hypot(dx, dy);
+        p.x += (dx / l) * p.speed * dt;
+        p.y += (dy / l) * p.speed * dt;
+      }
+      p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
+      p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
+
+      camera.x += (p.x - camera.x) * Math.min(1, 10 * dt);
+      camera.y += (p.y - camera.y) * Math.min(1, 10 * dt);
       world.time += dt;
     }
 
+    // ---------- render ----------
     function render(alpha) {
-      // 渲染在后续任务实现
+      ctx.clearRect(0, 0, view.w, view.h);
+      ctx.fillStyle = '#0a0e16';
+      ctx.fillRect(0, 0, view.w, view.h);
+      ctx.save();
+      ctx.translate(view.w / 2 - camera.x, view.h / 2 - camera.y);
+      drawRoom();
+      drawScanline();
+      drawPlayer();
+      ctx.restore();
+      drawHUD();
+    }
+
+    function drawRoom() {
+      const r = world.room;
+      ctx.fillStyle = 'rgba(14, 20, 32, 0.92)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+
+      ctx.strokeStyle = 'rgba(53, 224, 255, 0.08)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let gx = r.x; gx <= r.w; gx += 80) { ctx.moveTo(gx, r.y); ctx.lineTo(gx, r.h); }
+      for (let gy = r.y; gy <= r.h; gy += 80) { ctx.moveTo(r.x, gy); ctx.lineTo(r.w, gy); }
+      ctx.stroke();
+
+      ctx.shadowColor = '#35e0ff';
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = '#35e0ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+      ctx.shadowBlur = 0;
+
+      // 四角装饰
+      ctx.fillStyle = 'rgba(53, 224, 255, 0.55)';
+      const c = 14;
+      ctx.fillRect(r.x, r.y, c, c); ctx.fillRect(r.w - c, r.y, c, c);
+      ctx.fillRect(r.x, r.h - c, c, c); ctx.fillRect(r.w - c, r.h - c, c, c);
+    }
+
+    function drawScanline() {
+      const r = world.room;
+      const y = ((world.time * 140) % (r.h)) + r.y;
+      ctx.fillStyle = 'rgba(53, 224, 255, 0.05)';
+      ctx.fillRect(r.x, y, r.w, 2);
+    }
+
+    function drawPlayer() {
+      const p = world.player;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.aimAngle);
+      ctx.translate(-p.recoil * 8, 0);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 16, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#1d3a52';
+      ctx.strokeStyle = '#35e0ff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-10, 11);
+      ctx.lineTo(-6, 0);
+      ctx.lineTo(-10, -11);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#9adcff';
+      ctx.fillRect(10, -2.5, 16, 5);
+      ctx.fillStyle = '#35e0ff';
+      ctx.fillRect(0, -1, 14, 2);
+      ctx.restore();
+    }
+
+    function drawHUD() {
+      ctx.fillStyle = 'rgba(53, 224, 255, 0.7)';
+      ctx.font = '14px Consolas, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('T ' + world.time.toFixed(1) + 's', 14, 24);
+    }
+
+    // ---------- main loop ----------
+    function frame(now) {
+      let dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      input.pressedSet.clear();
+      acc += dt;
+      while (acc >= STEP) { update(STEP); acc -= STEP; }
+      render(acc / STEP);
+      raf = requestAnimationFrame(frame);
     }
 
     function start() {
-      // 事件监听与 RAF 循环在后续任务实现
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('wheel', onWheel, { passive: false });
+        window.addEventListener('blur', onBlur);
+        window.addEventListener('resize', onResize);
+      }
+      onResize();
+      last = performance.now();
+      raf = requestAnimationFrame(frame);
     }
 
     return {

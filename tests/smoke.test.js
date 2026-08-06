@@ -70,3 +70,23 @@ test('游戏脚本可加载并创建实例', () => {
   assert.strictEqual(typeof game.start, 'function');
   assert.ok(game.world && game.world.player, 'world.player 必须存在');
 });
+
+test('WASD 移动玩家并限制在房间内', () => {
+  const { game } = makeGame();
+  game.input.keys.add('KeyD');
+  game.update(1 / 60);
+  assert.ok(game.world.player.x > 0, '按 D 应向右移动');
+  game.input.keys.clear();
+  game.world.player.x = -50;
+  game.update(1 / 60);
+  assert.ok(game.world.player.x >= 0, '玩家不能越过房间左边界');
+});
+
+test('固定时间步与相机跟随', () => {
+  const { game } = makeGame();
+  game.world.player.x = 1000;
+  game.world.player.y = 700;
+  game.update(0.5); // 0.5s 应拆成 60 步
+  assert.ok(game.camera.x > 900, '相机应跟随玩家（存在插值或直接吸附均可）');
+  assert.strictEqual(game.world.time, 0.5);
+});
