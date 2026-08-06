@@ -141,14 +141,14 @@ test('重型武器后坐力更强', () => {
   const { game } = makeGame();
   game.world.guns[0].parts.body = { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', affixes: [] };
   game.rebuildGun(0);
-  game.input.mouse.down = true;
+  game.input.mouseHard = true;
   game.update(1 / 60);
   assert.ok(game.world.player.recoil > 0.5, '重型后坐力应明显');
 });
 
 test('子弹带拖尾（记录上一帧位置）', () => {
   const { game } = makeGame();
-  game.input.mouse.down = true;
+  game.input.mouseHard = true;
   game.update(1 / 60);
   const b = game.world.bullets[0];
   assert.ok(b && b.px !== undefined && b.py !== undefined, '子弹应记录拖尾起点');
@@ -158,7 +158,7 @@ test('瞬身：空格+左键触发，冷却3秒，击杀重置', () => {
   const { game } = makeGame();
   game.setScreen('playing');
   game.input.keys.add('Space');
-  game.input.mouse.down = true; // 边沿触发
+  game.input.mouseHard = true; // 边沿触发
   game.update(1 / 120);
   assert.ok(game.world.dash.active, '应触发瞬身');
   assert.ok(game.world.dash.cd > 0, '瞬身后进入冷却');
@@ -172,7 +172,7 @@ test('瞬身：空格+左键触发，冷却3秒，击杀重置', () => {
 test('按住射击生成子弹并消耗弹匣', () => {
   const { game } = makeGame();
   const before = game.world.bullets.length;
-  game.input.mouse.down = true;
+  game.input.mouseHard = true;
   game.update(1 / 60);
   assert.ok(game.world.bullets.length > before, '应生成子弹');
   assert.strictEqual(game.gun().mag, game.gun().stats.magSize - 1);
@@ -192,7 +192,7 @@ test('射速冷却与换弹', () => {
 
 test('开火时产生枪口火光与弹壳反馈', () => {
   const { game } = makeGame();
-  game.input.mouse.down = true;
+  game.input.mouseHard = true;
   game.update(1 / 60);
   assert.ok(game.world.particles.some(p => p.kind === 'muzzle'), '应产生枪口火光粒子');
   assert.ok(game.world.casings.length > 0, '应产生弹壳');
@@ -839,7 +839,7 @@ test('全局约束回归：部件数/粒子池/打击感标志', () => {
 test('长跑稳定性：模拟 60 秒战斗不报错', () => {
   const { game } = makeGame();
   game.setScreen('playing');
-  game.input.mouse.down = true;
+  game.input.mouseHard = true;
   for (let i = 0; i < 7200; i++) game.update(1 / 120);
   assert.ok(game.world.time > 50, '世界时间应推进');
 });
@@ -894,4 +894,31 @@ test('触摸瞬身按钮触发滑步', () => {
   game.input.dashTap = true;
   game.update(1 / 120);
   assert.ok(game.world.dash.active, '触摸瞬身应触发');
+});
+
+test('战/不战选项可通过点击路由触发', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  const n = game.world.startNpc;
+  game.world.bullets.push({ x: n.x + 10, y: n.y, vx: 0, vy: 0, damage: 5, friendly: true, life: 5, size: 3, trail: [] });
+  game.update(1 / 120);
+  const btn = game.ui.chat.buttons[0];
+  game.handleClick(btn.x + 5, btn.y + 5); // 模拟真实鼠标点击路由
+  assert.ok(game.world.enemies.some(e => e.specialNpc), '点击"战"应生成战斗 NPC');
+});
+
+test('松开左键后不再开火，且可再次瞬身', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.input.mouseHard = true;
+  game.update(1 / 60);
+  const fired = game.world.bullets.length;
+  assert.ok(fired > 0, '按下应开火');
+  game.input.mouseHard = false;
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s
+  assert.strictEqual(game.world.bullets.length, fired, '松开后不应再生成子弹');
+  game.input.mouseHard = true;
+  game.input.keys.add('Space');
+  game.update(1 / 120);
+  assert.ok(game.world.dash.active, '松开后再按应可瞬身');
 });

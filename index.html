@@ -1470,14 +1470,29 @@ const Game = (() => {
     }
     function onMouseDown(e) {
       if (e.button === 2) {
-        if (ui.chat) closeChat();
+        if (ui.chat) {
+          if (ui.chat.battle) declineBattle();
+          else closeChat();
+        }
         return;
       }
       if (e.button !== 0) return;
       if (canvas.focus) canvas.focus();
       const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
+      handleClick(e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    function handleClick(mx, my) {
+      if (ui.chat && ui.chat.buttons) {
+        for (const b of ui.chat.buttons) {
+          if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+            if (b.action === 'acceptBattle') acceptBattle();
+            else declineBattle();
+            return;
+          }
+        }
+        if (ui.chat.battle) return; // 战斗询问期间点击别处不触发开火
+      }
       if (ui.panel !== 'none') {
         uiClick(mx, my);
         return;
@@ -1745,7 +1760,7 @@ const Game = (() => {
       }
       const p = world.player;
       const gp = input.gp;
-      input.mouse.down = !!(input.mouse.down || input.mouseHard || input.touch.firing || (gp && gp.fire));
+      input.mouse.down = !!(input.mouseHard || input.touch.firing || (gp && gp.fire));
       if (input.touch.aimId !== null) {
         input.mouse.x = input.touch.aimPos.x;
         input.mouse.y = input.touch.aimPos.y;
@@ -3794,6 +3809,7 @@ const Game = (() => {
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
       openPanel, closePanel, uiClick, panelMetrics, buildPanelRows, closeChat,
+      handleClick,
       startMap, enterRoom,
       update, render, start, setScreen, restart, beginRun, hudData,
       VERSION
