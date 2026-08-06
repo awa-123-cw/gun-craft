@@ -84,11 +84,39 @@ test('WASD 移动玩家并限制在房间内', () => {
 
 test('固定时间步与相机跟随', () => {
   const { game } = makeGame();
+  game.input.mouse.x = 480;
+  game.input.mouse.y = 270; // 屏幕中心 → 目标=玩家
   game.world.player.x = 1000;
   game.world.player.y = 700;
-  game.update(0.5); // 0.5s 应拆成 60 步
-  assert.ok(game.camera.x > 900, '相机应跟随玩家（存在插值或直接吸附均可）');
-  assert.strictEqual(game.world.time, 0.5);
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s = 60 步
+  assert.ok(game.camera.x > 900, '相机应跟随玩家（从 750 收敛到玩家附近）');
+  assert.ok(Math.abs(game.world.time - 0.5) < 1e-9, '时间应推进 0.5s');
+});
+
+test('视角随准星偏移', () => {
+  const { game } = makeGame();
+  game.world.player.x = 1000;
+  game.world.player.y = 550;
+  game.input.mouse.x = 0;
+  game.input.mouse.y = 270; // 屏幕左边缘
+  for (let i = 0; i < 120; i++) game.update(1 / 120);
+  assert.ok(game.camera.x < 1000, '准星偏左时相机应左移');
+});
+
+test('E 键交互：靠近宝箱按 E 打开面板且不闪关', () => {
+  const { game } = makeGame();
+  game.world.chest = { x: 750, y: 550, opened: false };
+  game.input.pressedSet.add('KeyE');
+  game.update(1 / 120);
+  game.update(1 / 120); // 同一帧多次逻辑步不应立刻关闭
+  assert.strictEqual(game.ui.panel, 'chest', 'E 应打开宝箱面板且保持打开');
+});
+
+test('进入房间会标记已访问（小地图数据）', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  const room = game.world.map.rooms.find(r => r.x === game.world.mapInfo.roomPos.x && r.y === game.world.mapInfo.roomPos.y);
+  assert.ok(room && room.visited, '当前房间应标记 visited');
 });
 
 test('按住射击生成子弹并消耗弹匣', () => {

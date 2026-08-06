@@ -354,6 +354,11 @@ const Game = (() => {
   };
 
   const GUN_SOUNDS = { pistol_body: 'pistol', smg_body: 'smg', shotgun_body: 'shotgun', sniper_body: 'sniper', heavy_body: 'heavy' };
+  const MINIMAP_COLORS = {
+    start: '#35e0ff', combat: 'rgba(122, 152, 178, 0.75)',
+    treasure: '#b06cff', shop: '#ffd166',
+    elite: '#ff9f43', boss: '#ff3d81'
+  };
 
   // ===== ENEMY_KINDS =====
   const ENEMY_KINDS = {
@@ -564,7 +569,7 @@ const Game = (() => {
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [] };
     const camera = { x: world.player.x, y: world.player.y };
-    const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false }, wheelDelta: 0 };
+    const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false }, wheelDelta: 0, frameHandled: false };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
     const ctx = canvas.getContext('2d');
     let acc = 0, last = 0, raf = 0;
@@ -1146,35 +1151,38 @@ const Game = (() => {
 
     // ---------- update ----------
     function update(dt) {
-      if (input.pressedSet.has('Escape')) {
-        if (ui.panel !== 'none') {
-          closePanel();
-        } else if (state.screen === 'playing') {
-          setScreen('paused');
-        } else if (state.screen === 'paused') {
-          setScreen('playing');
+      if (!input.frameHandled) {
+        input.frameHandled = true;
+        if (input.pressedSet.has('Escape')) {
+          if (ui.panel !== 'none') {
+            closePanel();
+          } else if (state.screen === 'playing') {
+            setScreen('paused');
+          } else if (state.screen === 'paused') {
+            setScreen('playing');
+          }
         }
-      }
-      if (input.pressedSet.has('Enter') &&
-          (state.screen === 'start' || state.screen === 'dead' || state.screen === 'win')) {
-        beginRun();
-      }
-      if (input.pressedSet.has('Tab')) {
-        if (ui.panel === 'parts') closePanel();
-        else openPanel('parts');
-      }
-      if (input.pressedSet.has('KeyE')) {
-        if (ui.panel !== 'none') {
-          closePanel();
-        } else {
-          const p = world.player;
-          if (world.chest && !world.chest.opened &&
-              utils.distance(p.x, p.y, world.chest.x, world.chest.y) < 100) {
-            world.chestPart = partsEngine.rollPart();
-            openPanel('chest');
-          } else if (world.shopPos && world.shopOffers.length &&
-              utils.distance(p.x, p.y, world.shopPos.x, world.shopPos.y) < 120) {
-            openPanel('shop');
+        if (input.pressedSet.has('Enter') &&
+            (state.screen === 'start' || state.screen === 'dead' || state.screen === 'win')) {
+          beginRun();
+        }
+        if (input.pressedSet.has('Tab')) {
+          if (ui.panel === 'parts') closePanel();
+          else openPanel('parts');
+        }
+        if (input.pressedSet.has('KeyE')) {
+          if (ui.panel !== 'none') {
+            closePanel();
+          } else {
+            const p = world.player;
+            if (world.chest && !world.chest.opened &&
+                utils.distance(p.x, p.y, world.chest.x, world.chest.y) < 100) {
+              world.chestPart = partsEngine.rollPart();
+              openPanel('chest');
+            } else if (world.shopPos && world.shopOffers.length &&
+                utils.distance(p.x, p.y, world.shopPos.x, world.shopPos.y) < 120) {
+              openPanel('shop');
+            }
           }
         }
       }
@@ -1205,11 +1213,26 @@ const Game = (() => {
       if (input.keys.has('KeyS')) dy += 1;
       if (input.keys.has('KeyA')) dx -= 1;
       if (input.keys.has('KeyD')) dx += 1;
+      let moveX = 0, moveY = 0;
       if (dx || dy) {
         const l = Math.hypot(dx, dy);
-        p.x += (dx / l) * p.speed * dt;
-        p.y += (dy / l) * p.speed * dt;
+        moveX = dx / l;
+        moveY = dy / l;
       }
+      // 惯性滑动：加速到上限，松键后自然衰减
+      const ACCEL = 1500;
+      p.vx += moveX * ACCEL * dt;
+      p.vy += moveY * ACCEL * dt;
+      const spd = Math.hypot(p.vx, p.vy);
+      if (spd > p.speed) {
+        p.vx = (p.vx / spd) * p.speed;
+        p.vy = (p.vy / spd) * p.speed;
+      }
+      const damp = Math.exp(-5.5 * dt);
+      p.vx *= damp;
+      p.vy *= damp;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
       p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
       p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
 
@@ -1237,8 +1260,19 @@ const Game = (() => {
         }
       }
 
-      camera.x += (p.x - camera.x) * Math.min(1, 10 * dt);
-      camera.y += (p.y - camera.y) * Math.min(1, 10 * dt);
+      // 视角随准星走：目标点偏向鼠标方向 32%，并限制在房间可视范围内
+      const mxw = input.mouse.x + camera.x - view.w / 2;
+      const myw = input.mouse.y + camera.y - view.h / 2;
+      const r = world.room;
+      const halfW = view.w / 2, halfH = view.h / 2;
+      const minX = r.w <= view.w ? r.w / 2 : halfW;
+      const maxX = r.w <= view.w ? r.w / 2 : r.w - halfW;
+      const minY = r.h <= view.h ? r.h / 2 : halfH;
+      const maxY = r.h <= view.h ? r.h / 2 : r.h - halfH;
+      const tx = utils.clamp(p.x + (mxw - p.x) * 0.32, minX, maxX);
+      const ty = utils.clamp(p.y + (myw - p.y) * 0.32, minY, maxY);
+      camera.x += (tx - camera.x) * Math.min(1, 8 * dt);
+      camera.y += (ty - camera.y) * Math.min(1, 8 * dt);
       world.time += dt;
     }
 
@@ -1518,6 +1552,7 @@ const Game = (() => {
     function enterRoom(rx, ry) {
       const room = world.map.rooms.find(r => r.x === rx && r.y === ry);
       if (!room) return;
+      room.visited = true;
       world.room = room;
       world.mapInfo.roomPos = { x: rx, y: ry };
       world.enemies.length = 0;
@@ -2162,6 +2197,30 @@ const Game = (() => {
         ctx.font = 'bold 22px Consolas, monospace';
         ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 70);
       }
+      drawMinimap();
+    }
+
+    function drawMinimap() {
+      if (!world.map) return;
+      const cell = 14, gap = 2;
+      const mx = view.w - 14 - 3 * (cell + gap);
+      const my = 40;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '10px Consolas, monospace';
+      ctx.fillText('地图', view.w - 14, my - 6);
+      for (const room of world.map.rooms) {
+        const px = mx + room.x * (cell + gap);
+        const py = my + room.y * (cell + gap);
+        ctx.fillStyle = room.visited ? (MINIMAP_COLORS[room.type] || '#666666') : 'rgba(255,255,255,0.14)';
+        ctx.fillRect(px, py, cell, cell);
+        if (world.mapInfo.roomPos.x === room.x && world.mapInfo.roomPos.y === room.y) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px - 1.5, py - 1.5, cell + 3, cell + 3);
+        }
+      }
+      ctx.textAlign = 'left';
     }
 
     function drawLowHpVignette() {
@@ -2278,9 +2337,10 @@ const Game = (() => {
     function frame(now) {
       let dt = Math.min((now - last) / 1000, 0.1);
       last = now;
-      input.pressedSet.clear();
+      input.frameHandled = false;
       acc += dt;
       while (acc >= STEP) { update(STEP); acc -= STEP; }
+      input.pressedSet.clear();
       render(acc / STEP);
       raf = requestAnimationFrame(frame);
     }
