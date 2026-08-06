@@ -586,7 +586,7 @@ const Game = (() => {
       maxLayers: 2
     };
     const state = { screen: 'start', paused: false };
-    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [] };
+    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0 };
     const camera = { x: world.player.x, y: world.player.y };
     const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false, downPrev: false }, wheelDelta: 0, frameHandled: false };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
@@ -1189,7 +1189,15 @@ const Game = (() => {
       input.mouse.down = true;
     }
     function onMouseUp(e) { if (e.button === 0) input.mouse.down = false; }
-    function onWheel(e) { input.wheelDelta += e.deltaY; e.preventDefault(); }
+    function onWheel(e) {
+      if (ui.panel === 'parts') {
+        ui.scroll = utils.clamp((ui.scroll || 0) + (e.deltaY > 0 ? 30 : -30), 0, ui.maxScroll || 0);
+        e.preventDefault();
+        return;
+      }
+      input.wheelDelta += e.deltaY;
+      e.preventDefault();
+    }
     function onBlur() { input.keys.clear(); input.pressedSet.clear(); input.mouse.down = false; }
     function onResize() {
       const dpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
@@ -1754,6 +1762,7 @@ const Game = (() => {
     // ===== 面板 UI =====
     function openPanel(name) {
       ui.panel = name;
+      ui.scroll = 0;
       state.paused = true;
       ui.title = name === 'parts' ? '部件背包（点击装备，旧件自动卸下回背包）' :
         name === 'shop' ? '武器商店' : '宝箱';
@@ -1770,9 +1779,29 @@ const Game = (() => {
       audio.play('ui');
     }
 
+    function panelMetrics(rowCountOverride) {
+      const panelW = 460;
+      const header = 60;
+      const loadoutH = ui.panel === 'parts' ? 124 : 0;
+      const n = rowCountOverride !== undefined ? rowCountOverride : ui.items.length;
+      const panelH = Math.min(
+        header + loadoutH + n * 52 + 30,
+        Math.max(120, view.h - 40)
+      );
+      return {
+        panelW,
+        panelH,
+        px: view.w / 2 - panelW / 2,
+        py: view.h / 2 - panelH / 2
+      };
+    }
+
     function buildPanelRows() {
       const rows = [];
-      const panelW = 460;
+      const rowCount = ui.panel === 'parts' ? world.inventory.length :
+        ui.panel === 'shop' ? world.shopOffers.length :
+        (world.chestPart ? 1 : 0);
+      const { panelW, py } = panelMetrics(rowCount);
       const x0 = view.w / 2 - panelW / 2 + 16;
       if (ui.panel === 'parts') {
         const g = gun();
@@ -1783,10 +1812,10 @@ const Game = (() => {
         ui.loadoutChips = ui.loadout.map((entry, idx) => {
           const cw2 = 132, ch2 = 28;
           const cx2 = x0 + idx * (cw2 + 8);
-          const cy2 = 164;
+          const cy2 = py + 92;
           return { x: cx2, y: cy2, w: cw2, h: ch2, slot: entry.slot };
         });
-        let y = 208;
+        let y = py + 128;
         for (const part of world.inventory) {
           const equipped = g.parts[part.slot];
           const denied = equipped && equipped.id !== 'none_mod' && equipped.id === part.id;
@@ -1798,16 +1827,19 @@ const Game = (() => {
           y += 52;
         }
       } else if (ui.panel === 'shop') {
-        let y = 96;
+        let y = py + 96;
         for (let i = 0; i < world.shopOffers.length; i++) {
           rows.push({ x: x0, y, w: panelW - 32, h: 44, part: world.shopOffers[i], price: world.shopPrices[i], action: 'buy' });
           y += 52;
         }
       } else if (ui.panel === 'chest') {
         const part = world.chestPart;
-        if (part) rows.push({ x: x0, y: 110, w: panelW - 32, h: 44, part, price: null, action: 'take' });
+        if (part) rows.push({ x: x0, y: py + 110, w: panelW - 32, h: 44, part, price: null, action: 'take' });
       }
       ui.items = rows;
+      ui.maxScroll = Math.max(0, rowCount * 52 - (panelMetrics(rowCount).panelH - 158));
+      ui.scroll = utils.clamp(ui.scroll || 0, 0, ui.maxScroll);
+      for (const row of rows) row.y -= ui.scroll;
     }
 
     function uiClick(x, y) {
@@ -2277,10 +2309,7 @@ const Game = (() => {
       if (ui.panel === 'none') return;
       ctx.fillStyle = 'rgba(4, 8, 14, 0.82)';
       ctx.fillRect(0, 0, view.w, view.h);
-      const panelW = 460;
-      const panelH = 60 + (ui.panel === 'parts' ? 124 : 0) + ui.items.length * 52 + 30;
-      const px = view.w / 2 - panelW / 2;
-      const py = view.h / 2 - panelH / 2;
+      const { panelW, panelH, px, py } = panelMetrics();
       ctx.fillStyle = '#111827';
       ctx.strokeStyle = '#35e0ff';
       ctx.lineWidth = 2;
@@ -2350,6 +2379,17 @@ const Game = (() => {
           ctx.fillText('领取', row.x + row.w - 14, row.y + 26);
         }
         ctx.globalAlpha = 1;
+      }
+      if (ui.panel === 'parts' && ui.maxScroll > 0) {
+        const trackX = px + panelW - 10;
+        const trackY = py + 128;
+        const trackH = Math.max(10, panelH - 158);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(trackX, trackY, 4, trackH);
+        const thumbH = Math.max(20, trackH * (trackH / (trackH + ui.maxScroll)));
+        const thumbY = trackY + (trackH - thumbH) * (ui.scroll / ui.maxScroll);
+        ctx.fillStyle = '#35e0ff';
+        ctx.fillRect(trackX, thumbY, 4, thumbH);
       }
       ctx.textAlign = 'left';
     }
@@ -2653,7 +2693,7 @@ const Game = (() => {
       gun, rebuildGun,
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
-      openPanel, closePanel, uiClick,
+      openPanel, closePanel, uiClick, panelMetrics, buildPanelRows,
       startMap, enterRoom,
       update, render, start, setScreen, restart, beginRun, hudData,
       VERSION

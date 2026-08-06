@@ -429,6 +429,35 @@ test('同 ID 部件不允许重复装备（UI 拒绝）', () => {
   assert.ok(game.world.inventory.includes(dup), '部件不应被消耗');
 });
 
+test('拼装面板：部件列表与背包行对齐在面板内', () => {
+  const { game } = makeGame();
+  game.world.inventory.push({ id: 'pierce_ammo', slot: 'ammo', name: '穿甲弹', rarity: 2, color: '#cfd8ff', affixes: [] });
+  game.openPanel('parts');
+  const py = game.panelMetrics().py;
+  for (const chip of game.ui.loadoutChips) {
+    assert.ok(chip.y >= py + 60, '已装备部件列表应在面板内');
+  }
+  for (const row of game.ui.items) {
+    assert.ok(row.y >= py + 120, '背包行应位于部件列表下方且不重叠');
+  }
+});
+
+test('背包过多时可滚动且不越界', () => {
+  const { game, Game } = makeGame();
+  for (let i = 0; i < 12; i++) game.world.inventory.push(Game.partsEngine.rollPart());
+  game.openPanel('parts');
+  const m = game.panelMetrics();
+  assert.ok(game.ui.maxScroll > 0, '12 件背包应可滚动');
+  assert.ok(m.panelH <= 560, '面板高度不应超出屏幕');
+  const firstTop0 = game.ui.items[0].y;
+  assert.ok(firstTop0 >= m.py + 120, '初始第一行应在面板内');
+  game.ui.scroll = game.ui.maxScroll;
+  game.buildPanelRows();
+  const last = game.ui.items[game.ui.items.length - 1];
+  assert.ok(last.y + last.h <= m.py + m.panelH, '滚到底后最后一行不应越界');
+  assert.ok(game.ui.items[0].y < firstTop0, '滚动后列表应上移');
+});
+
 test('屏幕状态机与重新开始', () => {
   const { game } = makeGame();
   assert.strictEqual(game.state.screen, 'start');
