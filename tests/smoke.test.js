@@ -119,6 +119,56 @@ test('进入房间会标记已访问（小地图数据）', () => {
   assert.ok(room && room.visited, '当前房间应标记 visited');
 });
 
+test('B 键打开部件面板', () => {
+  const { game } = makeGame();
+  game.input.pressedSet.add('KeyB');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.panel, 'parts', 'B 应打开部件面板');
+});
+
+test('击中敌人产生击退，敌人攻击玩家产生击退', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 200, 100, 1);
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 10, 0, {});
+  assert.ok(e.kbvx > 0, '敌人应被击退（向右）');
+  game.world.player.hp = 100;
+  game.damagePlayer(5, Math.PI);
+  assert.ok(game.world.player.vx < -100, '玩家应被击退（向左）');
+});
+
+test('重型武器后坐力更强', () => {
+  const { game } = makeGame();
+  game.world.guns[0].parts.body = { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', affixes: [] };
+  game.rebuildGun(0);
+  game.input.mouse.down = true;
+  game.update(1 / 60);
+  assert.ok(game.world.player.recoil > 0.5, '重型后坐力应明显');
+});
+
+test('子弹带拖尾（记录上一帧位置）', () => {
+  const { game } = makeGame();
+  game.input.mouse.down = true;
+  game.update(1 / 60);
+  const b = game.world.bullets[0];
+  assert.ok(b && b.px !== undefined && b.py !== undefined, '子弹应记录拖尾起点');
+});
+
+test('瞬身：空格+左键触发，冷却3秒，击杀重置', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.input.keys.add('Space');
+  game.input.mouse.down = true; // 边沿触发
+  game.update(1 / 120);
+  assert.ok(game.world.dash.active, '应触发瞬身');
+  assert.ok(game.world.dash.cd > 0, '瞬身后进入冷却');
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  e.hp = 1;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 5, 0, {});
+  assert.strictEqual(game.world.dash.cd, 0, '击杀应立刻结束冷却');
+});
+
 test('按住射击生成子弹并消耗弹匣', () => {
   const { game } = makeGame();
   const before = game.world.bullets.length;

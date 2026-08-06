@@ -354,6 +354,7 @@ const Game = (() => {
   };
 
   const GUN_SOUNDS = { pistol_body: 'pistol', smg_body: 'smg', shotgun_body: 'shotgun', sniper_body: 'sniper', heavy_body: 'heavy' };
+  const GUN_RECOIL = { pistol_body: 0.35, smg_body: 0.22, shotgun_body: 0.75, sniper_body: 0.9, heavy_body: 0.85 };
   const MINIMAP_COLORS = {
     start: '#35e0ff', combat: 'rgba(122, 152, 178, 0.75)',
     treasure: '#b06cff', shop: '#ffd166',
@@ -527,6 +528,14 @@ const Game = (() => {
           tone(72, 54, 0.15, 'sine', 0.24);
           tone(60, 46, 0.12, 'sine', 0.18, 0.17);
           break;
+        case 'reload_done':
+          tone(520, 900, 0.05, 'square', 0.14);
+          tone(900, 1350, 0.06, 'square', 0.11, 0.05);
+          break;
+        case 'dash':
+          tone(300, 900, 0.16, 'sine', 0.2);
+          noise(0.1, 0.18, 3600);
+          break;
       }
     }
     return { play };
@@ -564,12 +573,13 @@ const Game = (() => {
       mapInfo: { roomPos: { x: 0, y: 0 }, totalRooms: 0, clearedRooms: 0 },
       transition: { active: false, t: 0, rx: 0, ry: 0 },
       hpDelay: 100,
-      lowhpT: 0
+      lowhpT: 0,
+      dash: { cd: 0, active: false, t: 0, angle: 0 }
     };
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [] };
     const camera = { x: world.player.x, y: world.player.y };
-    const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false }, wheelDelta: 0, frameHandled: false };
+    const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false, downPrev: false }, wheelDelta: 0, frameHandled: false };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
     const ctx = canvas.getContext('2d');
     let acc = 0, last = 0, raf = 0;
@@ -633,7 +643,7 @@ const Game = (() => {
 
     function spawnEnemyBullet(x, y, angle, speed, damage, color) {
       world.bullets.push({
-        x, y,
+        x, y, px: x, py: y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         damage, pierce: 0, friendly: false,
@@ -960,8 +970,9 @@ const Game = (() => {
       e.hp -= final;
       e.flash = 0.08;
       if (e.kind !== 'boss') {
-        e.kbvx = Math.cos(angle) * 16;
-        e.kbvy = Math.sin(angle) * 16;
+        const kb = (18 + Math.min(20, dmg * 0.25)) * (e.kind === 'elite' ? 0.3 : 1);
+        e.kbvx = Math.cos(angle) * kb;
+        e.kbvy = Math.sin(angle) * kb;
       }
       fx.sparks(e.x, e.y, e.color, 5);
       fx.floater(e.x, e.y - e.radius - 8, String(Math.round(final)), crit ? 'crit' : 'normal');
@@ -1007,6 +1018,7 @@ const Game = (() => {
       world.stats.kills++;
       updateCombo();
       maybeDrop(e);
+      world.dash.cd = 0;
       if (e.scale > 1) fx.slowmo(0.3, 0.25);
     }
 
@@ -1015,6 +1027,13 @@ const Game = (() => {
       if (p.invuln > 0) return;
       p.hp -= dmg;
       p.invuln = 0.4;
+      p.vx += Math.cos(angle) * 300;
+      p.vy += Math.sin(angle) * 300;
+      const spd = Math.hypot(p.vx, p.vy);
+      if (spd > 800) {
+        p.vx = (p.vx / spd) * 800;
+        p.vy = (p.vy / spd) * 800;
+      }
       fx.shake(4);
       fx.sparks(p.x, p.y, '#ff4d5e', 6);
       fx.floater(p.x, p.y - 20, '-' + dmg, 'normal');
@@ -1081,6 +1100,7 @@ const Game = (() => {
       world.transition.active = false;
       world.hpDelay = 100;
       world.lowhpT = 0;
+      world.dash = { cd: 0, active: false, t: 0, angle: 0 };
       camera.x = ROOM_W / 2;
       camera.y = ROOM_H / 2;
       input.keys.clear();
@@ -1166,7 +1186,7 @@ const Game = (() => {
             (state.screen === 'start' || state.screen === 'dead' || state.screen === 'win')) {
           beginRun();
         }
-        if (input.pressedSet.has('Tab')) {
+        if (input.pressedSet.has('KeyB')) {
           if (ui.panel === 'parts') closePanel();
           else openPanel('parts');
         }
@@ -1202,6 +1222,8 @@ const Game = (() => {
       if (fx.slowmoT > 0) {
         fx.slowmoT -= dt;
         dt *= fx.slowmoFactor;
+      } else if (input.keys.has('Space') && state.screen === 'playing' && !world.dash.active) {
+        dt *= 0.35; // 按住空格进入慢动作瞄准
       }
       const p = world.player;
       const mx = input.mouse.x + camera.x - view.w / 2;
@@ -1233,6 +1255,34 @@ const Game = (() => {
       p.vy *= damp;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
+      p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
+
+      // 瞬身：空格+左键向准星方向短距离滑步
+      const dash = world.dash;
+      dash.cd = Math.max(0, dash.cd - dt);
+      if (dash.active) {
+        dash.t -= dt;
+        p.x += Math.cos(dash.angle) * 1400 * dt;
+        p.y += Math.sin(dash.angle) * 1400 * dt;
+        fx.spawn({
+          kind: 'dash', x: p.x, y: p.y, vx: 0, vy: 0,
+          life: 0.22, color: '#35e0ff', size: 11
+        });
+        if (dash.t <= 0) dash.active = false;
+      }
+      if (input.mouse.down && !input.mouse.downPrev &&
+          input.keys.has('Space') && dash.cd <= 0 && !dash.active && state.screen === 'playing') {
+        const mxw = input.mouse.x + camera.x - view.w / 2;
+        const myw = input.mouse.y + camera.y - view.h / 2;
+        dash.angle = Math.atan2(myw - p.y, mxw - p.x);
+        dash.active = true;
+        dash.t = 0.13;
+        dash.cd = 3;
+        p.invuln = 0.25;
+        audio.play('dash');
+      }
+      input.mouse.downPrev = input.mouse.down;
       p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
       p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
 
@@ -1286,6 +1336,7 @@ const Game = (() => {
         const a = baseAngle + (i - (st.pellet - 1) / 2) * 0.04;
         world.bullets.push({
           x: muzzleX, y: muzzleY,
+          px: muzzleX, py: muzzleY,
           vx: Math.cos(a) * st.bulletSpeed,
           vy: Math.sin(a) * st.bulletSpeed,
           speed: st.bulletSpeed,
@@ -1317,7 +1368,7 @@ const Game = (() => {
         y1: muzzleY + Math.sin(p.aimAngle) * 46,
         life: 0.09, color: '#ffd166'
       });
-      p.recoil = Math.min(1, p.recoil + 0.35);
+      p.recoil = Math.min(1, p.recoil + (GUN_RECOIL[g.parts.body.id] || 0.35));
       audio.play(GUN_SOUNDS[g.parts.body.id] || 'pistol');
     }
 
@@ -1334,13 +1385,17 @@ const Game = (() => {
       g.cooldown -= dt;
       if (g.reloading) {
         g.reloadT -= dt;
-        if (g.reloadT <= 0) { g.reloading = false; g.mag = g.stats.magSize; }
+        if (g.reloadT <= 0) {
+          g.reloading = false;
+          g.mag = g.stats.magSize;
+          audio.play('reload_done');
+        }
       }
       if ((input.pressedSet.has('KeyR') || input.keys.has('KeyR')) && !g.reloading && g.mag < g.stats.magSize) {
         g.reloading = true;
         g.reloadT = g.stats.reloadTime;
       }
-      if (input.mouse.down && !g.reloading && g.mag > 0 && g.cooldown <= 0) {
+      if (input.mouse.down && !world.dash.active && !g.reloading && g.mag > 0 && g.cooldown <= 0) {
         g.cooldown = 1 / g.stats.fireRate;
         g.mag--;
         fireOnce(g);
@@ -1372,6 +1427,8 @@ const Game = (() => {
             b.vy = Math.sin(cur + turn) * sp;
           }
         }
+        b.px = b.x;
+        b.py = b.y;
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
@@ -1414,6 +1471,7 @@ const Game = (() => {
                   const a = hitAngle + (s - (b.split - 1) / 2) * 0.3;
                   world.bullets.push({
                     x: b.x, y: b.y,
+                    px: b.x, py: b.y,
                     vx: Math.cos(a) * b.speed * 0.9,
                     vy: Math.sin(a) * b.speed * 0.9,
                     speed: b.speed * 0.9,
@@ -1705,7 +1763,10 @@ const Game = (() => {
       ctx.save();
       const shx = (Math.random() * 2 - 1) * fx.shakePower;
       const shy = (Math.random() * 2 - 1) * fx.shakePower;
-      ctx.translate(view.w / 2 - camera.x + shx, view.h / 2 - camera.y + shy);
+      const p = world.player;
+      const kickX = -Math.cos(p.aimAngle) * p.recoil * 9;
+      const kickY = -Math.sin(p.aimAngle) * p.recoil * 9;
+      ctx.translate(view.w / 2 - camera.x + shx + kickX, view.h / 2 - camera.y + shy + kickY);
       drawRoom();
       drawScanline();
       drawDoors();
@@ -1724,6 +1785,10 @@ const Game = (() => {
       drawPanel();
       drawOverlay();
       drawLowHpVignette();
+      if (state.screen === 'playing' && input.keys.has('Space') && !world.dash.active) {
+        ctx.fillStyle = 'rgba(53, 224, 255, 0.06)';
+        ctx.fillRect(0, 0, view.w, view.h);
+      }
       if (world.transition.active) {
         ctx.fillStyle = 'rgba(4, 8, 14, ' + (world.transition.t / 0.6) + ')';
         ctx.fillRect(0, 0, view.w, view.h);
@@ -1758,9 +1823,23 @@ const Game = (() => {
 
     function drawBullets() {
       for (const b of world.bullets) {
+        if (b.px !== undefined) {
+          ctx.strokeStyle = b.color;
+          ctx.globalAlpha = 0.45;
+          ctx.lineWidth = b.size * 0.8;
+          ctx.beginPath();
+          ctx.moveTo(b.px, b.py);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
         ctx.fillStyle = b.color;
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size * 0.45, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -1814,6 +1893,13 @@ const Game = (() => {
           ctx.fillStyle = q.color;
           ctx.fillRect(-q.size / 2, -q.size / 2, q.size, q.size);
           ctx.restore();
+          ctx.globalAlpha = 1;
+        } else if (q.kind === 'dash') {
+          ctx.globalAlpha = a * 0.5;
+          ctx.fillStyle = q.color;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.size * (1.6 - a), 0, Math.PI * 2);
+          ctx.fill();
           ctx.globalAlpha = 1;
         }
       }
@@ -1901,6 +1987,20 @@ const Game = (() => {
           ctx.stroke();
           ctx.globalAlpha = 1;
           ctx.shadowBlur = 0;
+        }
+        if (e.hp < e.maxHp) {
+          const bw = e.radius * 2, bh = 4;
+          const bx = e.x - bw / 2, by = e.y - e.radius - 10;
+          const frac = utils.clamp(e.hp / e.maxHp, 0, 1);
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.fillRect(bx, by, bw, bh);
+          ctx.fillStyle = frac > 0.5 ? '#7ef29a' : frac > 0.25 ? '#ffd166' : '#ff4d5e';
+          ctx.fillRect(bx, by, bw * frac, bh);
+          if (e.maxShield > 0) {
+            const sfrac = utils.clamp(e.shield / e.maxShield, 0, 1);
+            ctx.fillStyle = 'rgba(176,108,255,0.8)';
+            ctx.fillRect(bx, by - 6, bw * sfrac, 3);
+          }
         }
         ctx.restore();
       }
@@ -2055,7 +2155,7 @@ const Game = (() => {
       ctx.fillText(ui.title, view.w / 2, py + 30);
       ctx.font = '12px Consolas, monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillText('ESC / Tab 关闭', view.w / 2, py + 48);
+      ctx.fillText('ESC / B 关闭', view.w / 2, py + 48);
 
       for (const row of ui.items) {
         ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
@@ -2197,6 +2297,21 @@ const Game = (() => {
         ctx.font = 'bold 22px Consolas, monospace';
         ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 70);
       }
+      const dash = world.dash;
+      if (dash.cd > 0) {
+        const frac = 1 - dash.cd / 3;
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.font = '12px Consolas, monospace';
+        ctx.fillText('瞬身 ' + dash.cd.toFixed(1) + 's', view.w / 2, view.h - 44);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(view.w / 2 - 50, view.h - 40, 100, 5);
+        ctx.fillStyle = '#35e0ff';
+        ctx.fillRect(view.w / 2 - 50, view.h - 40, 100 * utils.clamp(frac, 0, 1), 5);
+      } else {
+        ctx.fillStyle = '#35e0ff';
+        ctx.font = '12px Consolas, monospace';
+        ctx.fillText('瞬身就绪（空格+左键）', view.w / 2, view.h - 44);
+      }
       drawMinimap();
     }
 
@@ -2273,9 +2388,11 @@ const Game = (() => {
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
         ctx.font = '14px Consolas, monospace';
         ctx.fillText('WASD 移动 · 鼠标瞄准/射击 · R 换弹 · 1/2/滚轮切枪', view.w / 2, view.h / 2 - 34);
-        ctx.fillText('Tab 部件面板 · E 开箱/商店 · ESC 暂停', view.w / 2, view.h / 2 - 10);
+        ctx.fillText('B 部件面板 · E 开箱/商店 · ESC 暂停', view.w / 2, view.h / 2 - 10);
+        ctx.fillStyle = 'rgba(53,224,255,0.85)';
+        ctx.fillText('按住空格慢动作瞄准，左键瞬身滑步（击杀刷新）', view.w / 2, view.h / 2 + 24);
         ctx.fillStyle = 'rgba(255,209,102,0.85)';
-        ctx.fillText('收集枪械部件，拼装武器，击败机械核心', view.w / 2, view.h / 2 + 24);
+        ctx.fillText('收集枪械部件，拼装武器，击败机械核心', view.w / 2, view.h / 2 + 46);
       } else if (state.screen === 'paused') {
         ctx.fillStyle = '#ffd166';
         ctx.font = 'bold 38px Consolas, monospace';
