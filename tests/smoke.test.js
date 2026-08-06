@@ -460,7 +460,7 @@ test('部件掉落概率降低30%，金币概率提高且按强弱给量', () =>
   const { game } = makeGame();
   const orig = Math.random;
   try {
-    Math.random = () => 0.025; // 原 3% 会掉部件，新 2.1% 不掉
+    Math.random = () => 0.05; // 原 3% 会掉部件，新 2.1% 不掉；0.05 在护甲分支之后、金币分支之内
     const e = game.spawnEnemy('chaser', 100, 100, 1);
     e.hp = 1;
     e.scale = 1;
@@ -637,14 +637,17 @@ test('护甲吸收伤害并随时间恢复', () => {
   game.damagePlayer(60, 0);
   assert.ok(game.world.player.hp < 100, '护甲耗尽后扣血');
   const armorAfter = game.world.player.armor;
-  for (let i = 0; i < 120; i++) game.update(1 / 120);
-  assert.ok(game.world.player.armor > armorAfter + 4, '护甲应随时间恢复');
+  for (let i = 0; i < 360; i++) game.update(1 / 120); // 3s：新回复频率为 2.5s/次
+  assert.ok(game.world.player.armor > armorAfter + 2, '护甲应随时间恢复');
 });
 
 test('锻造房 NPC 与强化/重组', () => {
   const { game, Game } = makeGame();
-  game.startMap(999);
-  const forge = game.world.map.rooms.find(r => r.type === 'forge');
+  let forge = null;
+  for (let seed = 1; seed <= 50 && !forge; seed++) {
+    game.startMap(seed);
+    forge = game.world.map.rooms.find(r => r.type === 'forge');
+  }
   assert.ok(forge, '应存在锻造房');
   game.enterRoom(forge.x, forge.y);
   assert.ok(game.world.forgeNpc, '锻造房应有 NPC');
@@ -680,6 +683,78 @@ test('锻造房 NPC 与强化/重组', () => {
   const affRow2 = game.ui.items.find(r => r.affix === part.affixes[0]);
   game.uiClick(affRow2.x + 5, affRow2.y + 5);
   assert.strictEqual(part.affixes[0].rerolls, 1, '重组次数应 +1');
+});
+
+test('护甲品质对应掉落率（护甲会按品质掉落）', () => {
+  const { game } = makeGame();
+  const orig = Math.random;
+  try {
+    Math.random = () => 0.03; // 命中护甲掉落分支
+    const e = game.spawnEnemy('chaser', 100, 100, 1);
+    e.hp = 1;
+    game.world.enemies.push(e);
+    game.damageEnemy(e, 5, 0, {});
+    assert.ok(game.world.pickups.some(p => p.kind === 'part' && p.part.slot === 'armor'), '应掉落护甲部件');
+  } finally {
+    Math.random = orig;
+  }
+});
+
+test('护甲回复改为低频少量', () => {
+  const { game } = makeGame();
+  game.equipPart({ id: 'standard_armor', slot: 'armor', name: '标准护甲', rarity: 1, color: '#35e0ff', affixes: [] });
+  game.world.player.armor = 0;
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s
+  assert.strictEqual(game.world.player.armor, 0, '2.5s 间隔前不应恢复');
+  for (let i = 0; i < 300; i++) game.update(1 / 120); // 累计 3s
+  assert.ok(game.world.player.armor >= 8, '每次恢复约 9 点');
+});
+
+test('清房后掉落物自动飞向玩家并带拖尾', () => {
+  const { game } = makeGame();
+  game.world.room.cleared = true;
+  game.spawnPickup('coin', game.world.player.x + 500, game.world.player.y, 3);
+  const k = game.world.pickups[0];
+  k.vx = 0;
+  k.vy = 0;
+  const before = k.x;
+  for (let i = 0; i < 60; i++) game.update(1 / 120);
+  assert.ok(k.x < before - 50, '清房后掉落物应飞向玩家');
+  assert.ok(game.world.particles.some(p => p.kind === 'spark'), '飞向玩家时应带拖尾粒子');
+});
+
+test('攻击初始房 NPC 触发战/不战选项', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  const n = game.world.startNpc;
+  game.world.bullets.push({ x: n.x + 10, y: n.y, vx: 0, vy: 0, damage: 5, friendly: true, life: 5, size: 3, trail: [] });
+  game.update(1 / 120);
+  assert.ok(game.ui.chat && game.ui.chat.buttons && game.ui.chat.buttons.length === 2, '应弹出战/不战选项');
+  game.uiClick(game.ui.chat.buttons[1].x + 5, game.ui.chat.buttons[1].y + 5);
+  assert.strictEqual(game.ui.chat, null, '不战应关闭聊天');
+  assert.ok(!game.world.enemies.some(e => e.specialNpc), '不战不应生成战斗 NPC');
+});
+
+test('选择战斗后 NPC 变巨型 Boss，击败直接通关，战中死亡重开', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  const n = game.world.startNpc;
+  game.world.bullets.push({ x: n.x + 10, y: n.y, vx: 0, vy: 0, damage: 5, friendly: true, life: 5, size: 3, trail: [] });
+  game.update(1 / 120);
+  game.uiClick(game.ui.chat.buttons[0].x + 5, game.ui.chat.buttons[0].y + 5);
+  const boss = game.world.enemies.find(e => e.specialNpc);
+  assert.ok(boss, '应生成战斗 NPC');
+  assert.strictEqual(boss.maxHp, 8400, '血量应为 Boss 的 1000%');
+  assert.ok(boss.scale >= 3, '体型应为 300%');
+  boss.hp = 1;
+  game.damageEnemy(boss, 5, 0, {});
+  assert.strictEqual(game.state.screen, 'win', '击败战斗 NPC 应直接通关');
+  // 战中死亡重开
+  game.restart();
+  game.world.fightNpc = true;
+  game.world.player.hp = 10;
+  game.damagePlayer(100, 0);
+  assert.strictEqual(game.state.screen, 'start', '战中死亡应重新开始');
 });
 
 test('障碍物阻挡子弹与角色', () => {
@@ -767,4 +842,14 @@ test('长跑稳定性：模拟 60 秒战斗不报错', () => {
   game.input.mouse.down = true;
   for (let i = 0; i < 7200; i++) game.update(1 / 120);
   assert.ok(game.world.time > 50, '世界时间应推进');
+});
+
+test('锻造房出现概率约80%', () => {
+  const { Game } = makeGame();
+  let count = 0;
+  const total = 40;
+  for (let s = 1; s <= total; s++) {
+    if (Game.map.generate(s, 1).rooms.some(r => r.type === 'forge')) count++;
+  }
+  assert.ok(count >= total * 0.5 && count <= total * 0.95, '锻造房应约 80% 出现，实际 ' + count + '/' + total);
 });

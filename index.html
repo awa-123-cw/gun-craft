@@ -403,7 +403,7 @@ const Game = (() => {
       if (others[ti]) { others[ti].type = 'shop'; ti++; }
       if (others[ti]) { others[ti].type = 'coin'; ti++; }
       if (others[ti]) { others[ti].type = 'elite'; ti++; }
-      if (others[ti]) { others[ti].type = 'forge'; ti++; }
+      if (others[ti] && rng() < 0.8) { others[ti].type = 'forge'; ti++; }
       return { rooms, start: { x: 0, y: 0 }, boss: { x: boss.x, y: boss.y }, gridW: W, gridH: H };
     }
   };
@@ -639,13 +639,15 @@ const Game = (() => {
       transition: { active: false, t: 0, rx: 0, ry: 0 },
       hpDelay: 100,
       lowhpT: 0,
+      armorTick: 0,
       dash: { cd: 0, active: false, t: 0, angle: 0, ghostT: 0 },
       dashGhosts: [],
       layer: 1,
       maxLayers: 2,
       armor: null,
       startNpc: null,
-      forgeNpc: null
+      forgeNpc: null,
+      fightNpc: false
     };
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null } };
@@ -798,6 +800,9 @@ const Game = (() => {
         const e = world.enemies[i];
         e.flash -= dt;
         e.hitCd -= dt;
+        if (e.specialNpc && e.renderScale !== undefined && e.renderScale < 1) {
+          e.renderScale = Math.min(1, e.renderScale + dt * 1.5);
+        }
         if (e.shieldRegen && e.shield < e.maxShield) {
           e.shieldDelay -= dt;
           if (e.shieldDelay <= 0) e.shield = Math.min(e.maxShield, e.shield + e.shieldRegen * dt);
@@ -1240,7 +1245,9 @@ const Game = (() => {
         fx.slowmo(0.3, 0.5);
         fx.hitStop(120);
         audio.play('roar');
-        if (world.layer >= world.maxLayers) {
+        if (e.specialNpc) {
+          setScreen('win');
+        } else if (world.layer >= world.maxLayers) {
           for (let i = 0; i < 4; i++) {
             spawnPickup('part', e.x + utils.rand(-70, 70), e.y + utils.rand(-70, 70), partsEngine.rollPart());
           }
@@ -1308,7 +1315,8 @@ const Game = (() => {
       audio.play('hit');
       if (p.hp <= 0) {
         p.hp = 0;
-        setScreen('dead');
+        if (world.fightNpc) restart();
+        else setScreen('dead');
       }
     }
 
@@ -1319,6 +1327,23 @@ const Game = (() => {
       }
       const r = Math.random();
       if (r < 0.021) spawnPickup('part', e.x, e.y, partsEngine.rollPart());
+      else if (r < 0.041) {
+        const weights = [10, 15, 20, 25, 30]; // 品质越高掉落概率越高
+        const total = weights.reduce((a, b) => a + b, 0);
+        let rr = Math.random() * total;
+        let rarity = 0;
+        for (let i = 0; i < weights.length; i++) {
+          rr -= weights[i];
+          if (rr <= 0) { rarity = i; break; }
+        }
+        const keys = Object.keys(PARTS.armor);
+        const def = PARTS.armor[keys[Math.floor(Math.random() * keys.length)]];
+        spawnPickup('part', e.x, e.y, {
+          id: def.id, slot: 'armor', name: def.name, rarity,
+          color: def.color, desc: def.desc || '',
+          affixes: partsEngine.rollAffixes(rarity)
+        });
+      }
       else if (r < 0.09 && world.player.hp < world.player.maxHp * 0.5) spawnPickup('medkit', e.x, e.y, 0);
       else if (r < 0.336) {
         const def = ENEMY_KINDS[e.kind] || {};
@@ -1376,6 +1401,7 @@ const Game = (() => {
       world.transition.active = false;
       world.hpDelay = 100;
       world.lowhpT = 0;
+      world.armorTick = 0;
       world.dash = { cd: 0, active: false, t: 0, angle: 0, ghostT: 0 };
       world.dashGhosts.length = 0;
       world.layer = 1;
@@ -1383,6 +1409,7 @@ const Game = (() => {
       world.armor = null;
       world.startNpc = null;
       world.forgeNpc = null;
+      world.fightNpc = false;
       ui.chat = null;
       ui.forgeState = { mode: null, part: null };
       camera.x = ROOM_W / 2;
@@ -1542,6 +1569,12 @@ const Game = (() => {
         if (input.pressedSet.has('Digit2')) world.activeGun = 1;
         input.pressedSet.clear();
       }
+      if (world.startNpc && world.startNpc.state === 'transform') {
+        const n = world.startNpc;
+        n.transformT += dt;
+        n.scale = 1 + 2 * Math.min(1, n.transformT / 1.2);
+        if (n.transformT >= 1.2) spawnAuthorBoss();
+      }
       if (world.transition.active) {
         world.transition.t += dt;
         if (world.transition.t >= 0.6) {
@@ -1664,8 +1697,13 @@ const Game = (() => {
       else world.hpDelay = p.hp;
       if (p.maxArmor > 0) {
         const as = p.armorSpec || {};
-        p.armor = Math.min(p.maxArmor, p.armor + (6 * (as.regenMul || 1) + (as.regenFlat || 0)) * dt);
         if (as.hpRegen) p.hp = Math.min(p.maxHp, p.hp + as.hpRegen * dt);
+        world.armorTick += dt;
+        if (world.armorTick >= 2.4999) { // 回复频率降低150%（间隔×2.5）
+          world.armorTick -= 2.5;
+          const amount = (6 * (as.regenMul || 1) + (as.regenFlat || 0)) * 2.5 * 0.6; // 每次回复值 -40%
+          p.armor = Math.min(p.maxArmor, p.armor + amount);
+        }
       }
       if (state.screen === 'playing' && p.hp > 0 && p.hp < p.maxHp * 0.3) {
         world.lowhpT -= dt;
@@ -1815,6 +1853,12 @@ const Game = (() => {
           continue;
         }
         if (b.friendly) {
+          const sn = world.startNpc;
+          if (sn && sn.state === 'idle' && Math.hypot(sn.x - b.x, sn.y - b.y) < 18 + b.size) {
+            promptNpcBattle();
+            utils.swapRemove(world.bullets, i);
+            continue;
+          }
           for (let j = 0; j < world.enemies.length; j++) {
             const e = world.enemies[j];
             if (Math.hypot(e.x - b.x, e.y - b.y) < e.radius + b.size) {
@@ -1938,14 +1982,15 @@ const Game = (() => {
         k.life -= dt;
         if (k.life <= 0) { utils.swapRemove(world.pickups, i); continue; }
         const d = Math.hypot(p.x - k.x, p.y - k.y);
-        if (k.kind === 'coin' && d < 260) {
+        const magnet = (k.kind === 'coin' && d < 260) || (world.room && world.room.cleared);
+        if (magnet) {
           k.vx += (p.x - k.x) / (d || 1) * 700 * dt;
           k.vy += (p.y - k.y) / (d || 1) * 700 * dt;
           if (Math.random() < dt * 30) {
             fx.spawn({
               kind: 'spark', x: k.x, y: k.y,
               vx: utils.rand(-25, 25), vy: utils.rand(-25, 25),
-              life: 0.25, color: '#ffd166', size: 2
+              life: 0.25, color: k.kind === 'coin' ? '#ffd166' : '#7ef29a', size: 2
             });
           }
         }
@@ -2089,7 +2134,7 @@ const Game = (() => {
       camera.y = ROOM_H / 2;
       world.player.x = ROOM_W / 2;
       world.player.y = ROOM_H / 2;
-      if (room.type === 'start') world.startNpc = { x: ROOM_W / 2 - 220, y: ROOM_H / 2 };
+      if (room.type === 'start' && !world.fightNpc) world.startNpc = { x: ROOM_W / 2 - 220, y: ROOM_H / 2, state: 'idle', scale: 1, transformT: 0 };
       else if (room.type === 'forge') world.forgeNpc = { x: ROOM_W / 2 - 200, y: ROOM_H / 2 };
       if (room.spawned || room.cleared) return;
       room.spawned = true;
@@ -2182,6 +2227,61 @@ const Game = (() => {
       state.paused = false;
       audio.play('ui');
       if (showOpts) openPanel('forgeMenu');
+    }
+
+    function promptNpcBattle() {
+      if (!world.startNpc || world.startNpc.state !== 'idle') return;
+      world.startNpc.state = 'asked';
+      state.paused = true;
+      const bw = Math.min(720, view.w - 60);
+      const bx = (view.w - bw) / 2;
+      const by = view.h - 112;
+      ui.chat = {
+        name: '作者 awa_cw', color: '#ff4d5e',
+        lines: ['你想与我为战？'],
+        showOptions: false, battle: true,
+        buttons: [
+          { x: bx + bw - 216, y: by + 22, w: 92, h: 40, label: '战', action: 'acceptBattle' },
+          { x: bx + bw - 108, y: by + 22, w: 92, h: 40, label: '不战', action: 'declineBattle' }
+        ]
+      };
+      audio.play('roar');
+    }
+
+    function acceptBattle() {
+      const n = world.startNpc;
+      if (!n || n.state !== 'asked') return;
+      ui.chat = null;
+      const p = world.player;
+      const a = Math.atan2(p.y - n.y, p.x - n.x);
+      p.vx = Math.cos(a) * 900;
+      p.vy = Math.sin(a) * 900;
+      p.invuln = 1.2;
+      fx.shake(8);
+      spawnAuthorBoss();
+      audio.play('roar');
+    }
+
+    function declineBattle() {
+      ui.chat = null;
+      if (world.startNpc) world.startNpc.state = 'idle';
+      state.paused = false;
+      audio.play('ui');
+    }
+
+    function spawnAuthorBoss() {
+      const n = world.startNpc;
+      if (!n) return;
+      const boss = spawnEnemy('boss', n.x, n.y, 16); // 840×10 = 8400 HP
+      boss.specialNpc = true;
+      boss.renderScale = 0.1;
+      boss.growT = 0;
+      world.enemies.push(boss);
+      world.startNpc = null;
+      world.fightNpc = true;
+      state.paused = false;
+      fx.burst(boss.x, boss.y, '#ff4d5e', 24);
+      audio.play('roar');
     }
 
     function panelMetrics(rowCountOverride) {
@@ -2324,6 +2424,15 @@ const Game = (() => {
     }
 
     function uiClick(x, y) {
+      if (ui.chat && ui.chat.buttons) {
+        for (const b of ui.chat.buttons) {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            if (b.action === 'acceptBattle') acceptBattle();
+            else declineBattle();
+            return;
+          }
+        }
+      }
       for (const chip of ui.loadoutChips || []) {
         if (x >= chip.x && x <= chip.x + chip.w && y >= chip.y && y <= chip.y + chip.h) {
           unequipPart(chip.slot);
@@ -2581,41 +2690,42 @@ const Game = (() => {
         ctx.save();
         if (e.kind === 'boss') {
           const phaseColor = e.phase >= 3 ? '#ff4d5e' : e.phase === 2 ? '#ffd166' : '#35e0ff';
+          const rr = e.radius * (e.renderScale || 1);
           ctx.shadowColor = e.color;
           ctx.shadowBlur = 20;
           ctx.fillStyle = flash ? '#ffffff' : e.color;
           ctx.beginPath();
-          ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+          ctx.arc(e.x, e.y, rr, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
           // 内层同心环
           ctx.strokeStyle = phaseColor;
           ctx.lineWidth = 3;
           ctx.beginPath();
-          ctx.arc(e.x, e.y, e.radius * 0.62, 0, Math.PI * 2);
+          ctx.arc(e.x, e.y, rr * 0.62, 0, Math.PI * 2);
           ctx.stroke();
           ctx.strokeStyle = 'rgba(255,255,255,0.35)';
           ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.arc(e.x, e.y, e.radius * 0.36, 0, Math.PI * 2);
+          ctx.arc(e.x, e.y, rr * 0.36, 0, Math.PI * 2);
           ctx.stroke();
           // 旋转外环 14 块
           ctx.fillStyle = phaseColor;
           const seg = Math.PI * 2 / Math.max(1, e.ringSegs);
           for (let i = 0; i < e.ringSegs; i++) {
             const a = e.rotation + i * seg;
-            const rx = e.x + Math.cos(a) * e.radius;
-            const ry = e.y + Math.sin(a) * e.radius;
+            const rx = e.x + Math.cos(a) * rr;
+            const ry = e.y + Math.sin(a) * rr;
             ctx.fillRect(rx - 4, ry - 4, 8, 8);
           }
           // 核心
           ctx.fillStyle = flash ? '#ffffff' : e.coreColor;
           ctx.beginPath();
-          ctx.arc(e.x, e.y, e.radius * 0.18, 0, Math.PI * 2);
+          ctx.arc(e.x, e.y, rr * 0.18, 0, Math.PI * 2);
           ctx.fill();
           // 血条
           const bw = 300, bh = 10;
-          const by = e.y - e.radius - 34;
+          const by = e.y - rr - 34;
           ctx.fillStyle = 'rgba(0,0,0,0.65)';
           ctx.fillRect(e.x - bw / 2, by, bw, bh);
           ctx.fillStyle = '#ff3d81';
@@ -2834,11 +2944,14 @@ const Game = (() => {
       const p = world.player;
       if (world.startNpc) {
         const n = world.startNpc;
+        const hue = (world.time * 90) % 360;
+        const col = 'hsl(' + hue + ',85%,60%)';
         ctx.save();
         ctx.translate(n.x, n.y);
-        ctx.shadowColor = '#ff4d5e';
+        ctx.scale(n.scale || 1, n.scale || 1);
+        ctx.shadowColor = col;
         ctx.shadowBlur = 14;
-        ctx.fillStyle = '#ff4d5e';
+        ctx.fillStyle = col;
         ctx.beginPath();
         ctx.moveTo(16, 0);
         ctx.lineTo(-10, 11);
@@ -2850,6 +2963,15 @@ const Game = (() => {
         ctx.strokeStyle = 'rgba(255,255,255,0.6)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
+        if (n.state === 'asked') {
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.6 + 0.4 * Math.sin(world.time * 8);
+          ctx.beginPath();
+          ctx.arc(0, 0, 24, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
         ctx.restore();
         if (utils.distance(p.x, p.y, n.x, n.y) < 100) drawHint(n.x, n.y - 26, 'E 对话');
       }
@@ -3060,6 +3182,19 @@ const Game = (() => {
       ctx.fillStyle = '#ffffff';
       ctx.font = '13px Consolas, monospace';
       (c.lines || []).forEach((ln, i) => ctx.fillText(ln, bx + 16, by + 50 + i * 18));
+      if (c.buttons) {
+        ctx.textAlign = 'center';
+        for (const b of c.buttons) {
+          ctx.fillStyle = 'rgba(30,41,59,0.95)';
+          ctx.strokeStyle = b.action === 'acceptBattle' ? '#ff4d5e' : '#35e0ff';
+          ctx.lineWidth = 2;
+          ctx.fillRect(b.x, b.y, b.w, b.h);
+          ctx.strokeRect(b.x, b.y, b.w, b.h);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 14px Consolas, monospace';
+          ctx.fillText(b.label, b.x + b.w / 2, b.y + 27);
+        }
+      }
       ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.font = '11px Consolas, monospace';
       ctx.textAlign = 'right';
@@ -3218,7 +3353,7 @@ const Game = (() => {
       if (world.stats.combo > 1 && world.time - world.stats.comboT < 0.5) {
         ctx.fillStyle = '#ffd166';
         ctx.font = 'bold 22px Consolas, monospace';
-        ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 70);
+        ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 100);
       }
       const dash = world.dash;
       const dBarW = 190, dBarH = 10;
@@ -3229,14 +3364,17 @@ const Game = (() => {
       if (dash.cd > 0) {
         const frac = 1 - dash.cd / 3;
         const pulse = 0.6 + 0.4 * Math.sin(world.time * 6);
+        const col = 'rgb(' + Math.round(255 + (53 - 255) * frac) + ',' +
+          Math.round(77 + (224 - 77) * frac) + ',' +
+          Math.round(94 + (255 - 94) * frac) + ')';
         ctx.fillStyle = 'rgba(255,77,94,0.25)';
         ctx.fillRect(dBarX, dBarY, dBarW, dBarH);
-        ctx.fillStyle = '#ff4d5e';
+        ctx.fillStyle = col;
         ctx.fillRect(dBarX, dBarY, dBarW * frac, dBarH);
-        ctx.strokeStyle = 'rgba(255,77,94,' + (0.5 + 0.5 * pulse) + ')';
+        ctx.strokeStyle = col;
         ctx.lineWidth = 2;
         ctx.strokeRect(dBarX - 2, dBarY - 2, dBarW + 4, dBarH + 4);
-        ctx.fillStyle = '#ff9f9f';
+        ctx.fillStyle = col;
         ctx.font = 'bold 14px Consolas, monospace';
         ctx.fillText('瞬身冷却 ' + dash.cd.toFixed(1) + 's', view.w / 2, dBarY - 8);
       } else {
