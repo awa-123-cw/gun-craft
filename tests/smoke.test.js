@@ -853,3 +853,45 @@ test('锻造房出现概率约80%', () => {
   }
   assert.ok(count >= total * 0.5 && count <= total * 0.95, '锻造房应约 80% 出现，实际 ' + count + '/' + total);
 });
+
+test('触摸按钮：交互/换弹/切枪通过 tapQueue 生效', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.chest = { x: 750, y: 550, opened: false };
+  game.input.tapQueue.add('interact');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.panel, 'chest', '触摸交互按钮应打开宝箱');
+  game.closePanel();
+  const g0 = game.world.activeGun;
+  game.input.tapQueue.add('switchR');
+  game.update(1 / 120);
+  assert.notStrictEqual(game.world.activeGun, g0, '触摸切枪应生效');
+  const g = game.gun();
+  g.mag = 0;
+  g.reloading = false;
+  game.input.tapQueue.add('reload');
+  game.update(1 / 120);
+  assert.ok(g.reloading, '触摸换弹应生效');
+});
+
+test('手柄：摇杆移动/扳机开火', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.input.gp = {
+    lx: 1, ly: 0, ax: 1, ay: 0, fire: true,
+    dash: false, interact: false, reload: false, panel: false,
+    pause: false, switchR: false, switchL: false
+  };
+  const before = game.world.player.x;
+  game.update(1 / 60);
+  assert.ok(game.world.player.x > before, '摇杆应移动玩家');
+  assert.ok(game.world.bullets.length > 0, '扳机应开火');
+});
+
+test('触摸瞬身按钮触发滑步', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.input.dashTap = true;
+  game.update(1 / 120);
+  assert.ok(game.world.dash.active, '触摸瞬身应触发');
+});

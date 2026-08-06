@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>枪械工艺 GUNSMITH</title>
 <style>
   html, body {
@@ -21,6 +21,7 @@
     width: 100vw;
     height: 100vh;
     cursor: crosshair;
+    touch-action: none;
   }
 </style>
 </head>
@@ -652,10 +653,18 @@ const Game = (() => {
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null } };
     const camera = { x: world.player.x, y: world.player.y };
-    const input = { keys: new Set(), pressedSet: new Set(), mouse: { x: 0, y: 0, down: false, downPrev: false }, wheelDelta: 0, frameHandled: false };
+    const input = {
+      keys: new Set(), pressedSet: new Set(),
+      mouse: { x: 0, y: 0, down: false, downPrev: false }, mouseHard: false,
+      wheelDelta: 0, frameHandled: false,
+      tapQueue: new Set(), dashTap: false,
+      gp: null, gpPrev: null,
+      touch: { moveId: null, moveOrigin: { x: 0, y: 0 }, moveVec: { x: 0, y: 0 }, aimId: null, aimPos: { x: 0, y: 0 }, firing: false }
+    };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
     const ctx = canvas.getContext('2d');
     let acc = 0, last = 0, raf = 0;
+    let touchMode = false;
 
     function gun() { return world.guns[world.activeGun]; }
     function accent() {
@@ -1417,7 +1426,16 @@ const Game = (() => {
       input.keys.clear();
       input.pressedSet.clear();
       input.mouse.down = false;
+      input.mouseHard = false;
       input.wheelDelta = 0;
+      input.tapQueue.clear();
+      input.dashTap = false;
+      input.gp = null;
+      input.gpPrev = null;
+      input.touch.moveId = null;
+      input.touch.moveVec = { x: 0, y: 0 };
+      input.touch.aimId = null;
+      input.touch.firing = false;
       ui.panel = 'none';
       ui.items = [];
       ui.title = '';
@@ -1473,9 +1491,9 @@ const Game = (() => {
         }
         return;
       }
-      input.mouse.down = true;
+      input.mouseHard = true;
     }
-    function onMouseUp(e) { if (e.button === 0) input.mouse.down = false; }
+    function onMouseUp(e) { if (e.button === 0) input.mouseHard = false; }
     function onWheel(e) {
       if (ui.panel === 'parts') {
         ui.scroll = utils.clamp((ui.scroll || 0) + (e.deltaY > 0 ? 30 : -30), 0, ui.maxScroll || 0);
@@ -1485,7 +1503,14 @@ const Game = (() => {
       input.wheelDelta += e.deltaY;
       e.preventDefault();
     }
-    function onBlur() { input.keys.clear(); input.pressedSet.clear(); input.mouse.down = false; }
+    function onBlur() {
+      input.keys.clear();
+      input.pressedSet.clear();
+      input.mouseHard = false;
+      input.touch.firing = false;
+      input.touch.moveId = null;
+      input.touch.aimId = null;
+    }
     function onResize() {
       const dpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
       view.w = canvas.clientWidth || window.innerWidth || 960;
@@ -1495,9 +1520,132 @@ const Game = (() => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
+    function touchButtons() {
+      return [
+        { id: 'dash', x: 96, y: view.h - 150, r: 36, label: '闪' },
+        { id: 'reload', x: view.w - 64, y: view.h - 64, r: 30, label: 'R' },
+        { id: 'interact', x: view.w - 132, y: view.h - 118, r: 30, label: 'E' },
+        { id: 'switch', x: view.w - 64, y: view.h - 140, r: 30, label: '换' },
+        { id: 'panel', x: view.w - 132, y: view.h - 188, r: 30, label: '包' },
+        { id: 'pause', x: view.w - 34, y: 42, r: 22, label: 'II' }
+      ];
+    }
+
+    function hitTouchButton(x, y) {
+      for (const b of touchButtons()) {
+        if (Math.hypot(x - b.x, y - b.y) <= b.r) return b;
+      }
+      return null;
+    }
+
+    function onTouchStart(e) {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      for (const t of e.changedTouches) {
+        const x = t.clientX - rect.left;
+        const y = t.clientY - rect.top;
+        const btn = hitTouchButton(x, y);
+        if (btn) {
+          if (btn.id === 'dash') input.dashTap = true;
+          else if (btn.id === 'reload') input.tapQueue.add('reload');
+          else if (btn.id === 'interact') input.tapQueue.add('interact');
+          else if (btn.id === 'switch') input.tapQueue.add('switchR');
+          else if (btn.id === 'panel') input.tapQueue.add('panel');
+          else if (btn.id === 'pause') input.tapQueue.add('pause');
+          continue;
+        }
+        if (x < view.w * 0.5 && input.touch.moveId === null) {
+          input.touch.moveId = t.identifier;
+          input.touch.moveOrigin = { x, y };
+          input.touch.moveVec = { x: 0, y: 0 };
+        } else if (x >= view.w * 0.5 && input.touch.aimId === null) {
+          input.touch.aimId = t.identifier;
+          input.touch.aimPos = { x, y };
+          input.touch.firing = true;
+        }
+      }
+    }
+
+    function onTouchMove(e) {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      for (const t of e.changedTouches) {
+        const x = t.clientX - rect.left;
+        const y = t.clientY - rect.top;
+        if (t.identifier === input.touch.moveId) {
+          let vx = x - input.touch.moveOrigin.x;
+          let vy = y - input.touch.moveOrigin.y;
+          const len = Math.hypot(vx, vy);
+          const maxR = 60;
+          if (len > maxR) { vx = (vx / len) * maxR; vy = (vy / len) * maxR; }
+          input.touch.moveVec = { x: vx, y: vy };
+        } else if (t.identifier === input.touch.aimId) {
+          input.touch.aimPos = { x, y };
+        }
+      }
+    }
+
+    function onTouchEnd(e) {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier === input.touch.moveId) {
+          input.touch.moveId = null;
+          input.touch.moveVec = { x: 0, y: 0 };
+        } else if (t.identifier === input.touch.aimId) {
+          input.touch.aimId = null;
+          input.touch.firing = false;
+        }
+      }
+    }
+
+    function pollGamepad() {
+      if (typeof navigator === 'undefined' || !navigator.getGamepads) return;
+      const pads = navigator.getGamepads();
+      const gp = pads && pads[0];
+      const prev = input.gpPrev;
+      if (!gp) { input.gp = null; input.gpPrev = null; return; }
+      const dead = 0.25;
+      const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
+      const cur = {
+        lx: Math.abs(gp.axes[0]) > dead ? gp.axes[0] : 0,
+        ly: Math.abs(gp.axes[1]) > dead ? gp.axes[1] : 0,
+        ax: Math.abs(gp.axes[2]) > dead ? gp.axes[2] : 0,
+        ay: Math.abs(gp.axes[3]) > dead ? gp.axes[3] : 0,
+        fire: btn(7), dash: btn(3), interact: btn(0), reload: btn(2),
+        panel: btn(1), pause: btn(9), switchR: btn(5), switchL: btn(4)
+      };
+      input.gp = cur;
+      if (prev) {
+        if (cur.dash && !prev.dash) input.dashTap = true;
+        if (cur.interact && !prev.interact) input.tapQueue.add('interact');
+        if (cur.reload && !prev.reload) input.tapQueue.add('reload');
+        if (cur.panel && !prev.panel) input.tapQueue.add('panel');
+        if (cur.pause && !prev.pause) input.tapQueue.add('pause');
+        if (cur.switchR && !prev.switchR) input.tapQueue.add('switchR');
+        if (cur.switchL && !prev.switchL) input.tapQueue.add('switchL');
+      }
+      input.gpPrev = cur;
+    }
+
     // ---------- update ----------
     function update(dt) {
       input.frameHandled = false;
+      if (input.tapQueue.size) {
+        if (input.tapQueue.has('interact')) input.pressedSet.add('KeyE');
+        if (input.tapQueue.has('panel')) input.pressedSet.add('KeyB');
+        if (input.tapQueue.has('pause')) input.pressedSet.add('Escape');
+        if (input.tapQueue.has('switchR') || input.tapQueue.has('switchL')) {
+          world.activeGun = (world.activeGun + (input.tapQueue.has('switchR') ? 1 : -1) + 2) % 2;
+        }
+        if (input.tapQueue.has('reload')) {
+          const g = gun();
+          if (!g.reloading && g.mag < g.stats.magSize) {
+            g.reloading = true;
+            g.reloadT = g.stats.reloadTime;
+          }
+        }
+        input.tapQueue.clear();
+      }
       if (input.pressedSet.size) {
         if (input.pressedSet.has('Escape')) {
           if (ui.panel !== 'none') {
@@ -1596,15 +1744,31 @@ const Game = (() => {
         dt *= 0.35; // 按住空格进入慢动作瞄准
       }
       const p = world.player;
-      const mx = input.mouse.x + camera.x - view.w / 2;
-      const my = input.mouse.y + camera.y - view.h / 2;
-      p.aimAngle = Math.atan2(my - p.y, mx - p.x);
+      const gp = input.gp;
+      input.mouse.down = !!(input.mouse.down || input.mouseHard || input.touch.firing || (gp && gp.fire));
+      if (input.touch.aimId !== null) {
+        input.mouse.x = input.touch.aimPos.x;
+        input.mouse.y = input.touch.aimPos.y;
+      }
+      const stickAim = gp && (Math.abs(gp.ax) > 0.2 || Math.abs(gp.ay) > 0.2);
+      if (stickAim) {
+        p.aimAngle = Math.atan2(gp.ay, gp.ax);
+      } else {
+        const mx = input.mouse.x + camera.x - view.w / 2;
+        const my = input.mouse.y + camera.y - view.h / 2;
+        p.aimAngle = Math.atan2(my - p.y, mx - p.x);
+      }
 
       let dx = 0, dy = 0;
       if (input.keys.has('KeyW')) dy -= 1;
       if (input.keys.has('KeyS')) dy += 1;
       if (input.keys.has('KeyA')) dx -= 1;
       if (input.keys.has('KeyD')) dx += 1;
+      if (gp) { dx += gp.lx; dy += gp.ly; }
+      if (input.touch.moveId !== null) {
+        dx += input.touch.moveVec.x / 60;
+        dy += input.touch.moveVec.y / 60;
+      }
       let moveX = 0, moveY = 0;
       if (dx || dy) {
         const l = Math.hypot(dx, dy);
@@ -1654,8 +1818,8 @@ const Game = (() => {
         }
         if (dash.t <= 0) dash.active = false;
       }
-      if (input.mouse.down && !input.mouse.downPrev &&
-          input.keys.has('Space') && dash.cd <= 0 && !dash.active && state.screen === 'playing') {
+      if (((input.mouse.down && !input.mouse.downPrev && input.keys.has('Space')) || input.dashTap) &&
+          dash.cd <= 0 && !dash.active && state.screen === 'playing') {
         const mxw = input.mouse.x + camera.x - view.w / 2;
         const myw = input.mouse.y + camera.y - view.h / 2;
         dash.angle = Math.atan2(myw - p.y, mxw - p.x);
@@ -1665,6 +1829,7 @@ const Game = (() => {
         p.invuln = 0.25;
         audio.play('dash');
       }
+      input.dashTap = false;
       input.mouse.downPrev = input.mouse.down;
       p.x = utils.clamp(p.x, p.radius, world.room.w - p.radius);
       p.y = utils.clamp(p.y, p.radius, world.room.h - p.radius);
@@ -2537,6 +2702,7 @@ const Game = (() => {
       drawPlayer();
       ctx.restore();
       drawHUD();
+      drawTouchUI();
       drawPanel();
       drawChat();
       drawOverlay();
@@ -3389,6 +3555,53 @@ const Game = (() => {
       drawMinimap();
     }
 
+    function drawTouchUI() {
+      if (!touchMode || state.screen !== 'playing') return;
+      const t = input.touch;
+      if (t.moveId !== null) {
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#35e0ff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(t.moveOrigin.x, t.moveOrigin.y, 52, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = '#35e0ff';
+        ctx.beginPath();
+        ctx.arc(t.moveOrigin.x + t.moveVec.x, t.moveOrigin.y + t.moveVec.y, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (t.aimId !== null) {
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(t.aimPos.x, t.aimPos.y, 14, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(t.aimPos.x - 6, t.aimPos.y);
+        ctx.lineTo(t.aimPos.x + 6, t.aimPos.y);
+        ctx.moveTo(t.aimPos.x, t.aimPos.y - 6);
+        ctx.lineTo(t.aimPos.x, t.aimPos.y + 6);
+        ctx.stroke();
+      }
+      for (const b of touchButtons()) {
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = b.id === 'dash' ? 'rgba(53,224,255,0.25)' : 'rgba(30,41,59,0.7)';
+        ctx.strokeStyle = b.id === 'dash' ? '#35e0ff' : 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.label, b.x, b.y + 5);
+      }
+    }
+
     function drawMinimap() {
       if (!world.map) return;
       const cell = 14, gap = 2;
@@ -3540,6 +3753,7 @@ const Game = (() => {
     function frame(now) {
       let dt = Math.min((now - last) / 1000, 0.1);
       last = now;
+      pollGamepad();
       input.frameHandled = false;
       acc += dt;
       while (acc >= STEP) { update(STEP); acc -= STEP; }
@@ -3561,6 +3775,13 @@ const Game = (() => {
         window.addEventListener('wheel', onWheel, { passive: false });
         window.addEventListener('blur', onBlur);
         window.addEventListener('resize', onResize);
+      }
+      touchMode = !!(('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0));
+      if (canvas.addEventListener) {
+        canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+        canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+        canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+        canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
       }
       onResize();
       last = performance.now();
