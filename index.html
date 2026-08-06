@@ -385,6 +385,12 @@ const Game = (() => {
       hp: 90, radius: 30, speed: 55, dmg: 20,
       behavior: 'elite', shield: 40, maxShield: 40, shieldRegen: 30,
       dashCooldown: 3, telegraphT: 0.4
+    },
+    boss: {
+      name: '机械核心', color: '#ff3d81', coreColor: '#5c0a2e',
+      hp: 420, radius: 58, speed: 38, dmg: 24,
+      behavior: 'boss', ringSegs: 14, rotSpeed: 0.6,
+      burstCd: 1.8, summonCd: 10
     }
   };
 
@@ -478,6 +484,11 @@ const Game = (() => {
           break;
         case 'zap':
           tone(1800, 300, 0.1, 'sawtooth', 0.12);
+          break;
+        case 'roar':
+          tone(160, 45, 0.6, 'sawtooth', 0.4);
+          tone(120, 38, 0.7, 'triangle', 0.3, 0.1);
+          noise(0.5, 0.3, 500);
           break;
       }
     }
@@ -574,7 +585,10 @@ const Game = (() => {
         dashAngle: 0, fireT: k.fireInterval || 0,
         shield: k.shield || 0, maxShield: k.maxShield || (k.shield || 0),
         shieldRegen: k.shieldRegen || 0, shieldDelay: 0,
-        extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0 }
+        extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0 },
+        phase: 1, rotation: 0, rotSpeed: k.rotSpeed || 0,
+        ringSegs: k.ringSegs || 0,
+        burstCd: k.burstCd || 0, summonCd: k.summonCd || 0, dashCd: 0
       };
     }
 
@@ -727,6 +741,74 @@ const Game = (() => {
         } else if (e.state === 'recover') {
           if (e.stateT <= 0) e.state = 'idle';
         }
+      } else if (e.behavior === 'boss') {
+        const def = ENEMY_KINDS[e.kind];
+        e.rotation += def.rotSpeed * dt * (e.phase >= 3 ? 2 : 1);
+        const pct = e.hp / e.maxHp;
+        if (pct <= 0.3 && e.phase < 3) {
+          e.phase = 3;
+          fx.burst(e.x, e.y, '#ff4d5e', 20);
+          fx.shake(6);
+          audio.play('roar');
+          fx.slowmo(0.4, 0.3);
+        } else if (pct <= 0.6 && e.phase < 2) {
+          e.phase = 2;
+          fx.burst(e.x, e.y, '#ffd166', 16);
+          fx.shake(6);
+          audio.play('roar');
+          fx.slowmo(0.4, 0.3);
+        }
+        e.x += ux * e.speed * dt;
+        e.y += uy * e.speed * dt;
+        e.burstCd -= dt;
+        const interval = e.phase >= 3 ? 0.7 : e.phase === 2 ? 0.9 : 1.8;
+        if (e.burstCd <= 0) {
+          e.burstCd = interval;
+          const count = e.phase >= 3 ? 24 : 12;
+          const off = (e.phase >= 2 ? 15 : 0) * Math.PI / 180;
+          for (let a2 = off; a2 < Math.PI * 2 + off; a2 += Math.PI * 2 / count) {
+            spawnEnemyBullet(e.x, e.y, a2, 260, e.dmg, '#ff3d81');
+          }
+          if (e.phase === 1 && Math.random() < 0.3) {
+            for (let f = -1; f <= 1; f++) {
+              spawnEnemyBullet(e.x, e.y, Math.atan2(dy, dx) + f * 0.22, 300, e.dmg, '#ff3d81');
+            }
+          }
+          audio.play('zap');
+        }
+        if (e.phase >= 2) {
+          e.summonCd -= dt;
+          const buzzers = world.enemies.filter(x => x.kind === 'buzzer').length;
+          if (e.summonCd <= 0 && buzzers < 4) {
+            e.summonCd = 10;
+            world.enemies.push(spawnEnemy('buzzer', e.x + utils.rand(-80, 80), e.y + utils.rand(-80, 80), 1));
+            world.enemies.push(spawnEnemy('buzzer', e.x + utils.rand(-80, 80), e.y + utils.rand(-80, 80), 1));
+          }
+        }
+        if (e.phase >= 3) {
+          e.dashCd -= dt;
+          if (e.state === 'idle' && e.dashCd <= 0) {
+            e.state = 'telegraph';
+            e.stateT = 0.5;
+          } else if (e.state === 'telegraph') {
+            if (e.stateT <= 0) {
+              e.dashAngle = Math.atan2(dy, dx);
+              e.state = 'dash';
+              e.stateT = 0.4;
+            }
+          } else if (e.state === 'dash') {
+            e.x += Math.cos(e.dashAngle) * 520 * dt;
+            e.y += Math.sin(e.dashAngle) * 520 * dt;
+            if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle);
+            if (e.stateT <= 0) {
+              e.state = 'recover';
+              e.stateT = 1.0;
+              e.dashCd = 2.5;
+            }
+          } else if (e.state === 'recover') {
+            if (e.stateT <= 0) e.state = 'idle';
+          }
+        }
       }
     }
 
@@ -838,8 +920,10 @@ const Game = (() => {
       const final = crit ? dmg * (o.critMult || 2) : dmg;
       e.hp -= final;
       e.flash = 0.08;
-      e.kbvx = Math.cos(angle) * 16;
-      e.kbvy = Math.sin(angle) * 16;
+      if (e.kind !== 'boss') {
+        e.kbvx = Math.cos(angle) * 16;
+        e.kbvy = Math.sin(angle) * 16;
+      }
       fx.sparks(e.x, e.y, e.color, 5);
       fx.floater(e.x, e.y - e.radius - 8, String(Math.round(final)), crit ? 'crit' : 'normal');
       if (o.burnDps) { e.burnDps = o.burnDps; e.burnT = o.burnT; }
@@ -856,6 +940,17 @@ const Game = (() => {
     function killEnemy(e) {
       if (e.dead) return;
       e.dead = true;
+      if (e.kind === 'boss') {
+        for (let i = 0; i < 4; i++) {
+          spawnPickup('part', e.x + utils.rand(-70, 70), e.y + utils.rand(-70, 70), partsEngine.rollPart());
+        }
+        spawnPickup('medkit', e.x, e.y + 60, 0);
+        spawnPickup('medkit', e.x, e.y - 60, 0);
+        fx.slowmo(0.3, 0.5);
+        fx.hitStop(120);
+        audio.play('roar');
+        setScreen('win');
+      }
       const idx = world.enemies.indexOf(e);
       if (idx >= 0) utils.swapRemove(world.enemies, idx);
       const def = ENEMY_KINDS[e.kind];
@@ -1328,7 +1423,7 @@ const Game = (() => {
         world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3));
         world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3));
       } else if (room.type === 'boss') {
-        world.enemies.push(spawnEnemy('chaser', ROOM_W / 2, ROOM_H / 2, 5)); // 临时 Boss（Task 8 替换）
+        world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2, 1));
       } else if (room.type === 'treasure') {
         world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
       } else if (room.type === 'shop') {
@@ -1561,6 +1656,53 @@ const Game = (() => {
       for (const e of world.enemies) {
         const flash = e.flash > 0;
         ctx.save();
+        if (e.kind === 'boss') {
+          const phaseColor = e.phase >= 3 ? '#ff4d5e' : e.phase === 2 ? '#ffd166' : '#35e0ff';
+          ctx.shadowColor = e.color;
+          ctx.shadowBlur = 20;
+          ctx.fillStyle = flash ? '#ffffff' : e.color;
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          // 内层同心环
+          ctx.strokeStyle = phaseColor;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius * 0.62, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius * 0.36, 0, Math.PI * 2);
+          ctx.stroke();
+          // 旋转外环 14 块
+          ctx.fillStyle = phaseColor;
+          const seg = Math.PI * 2 / Math.max(1, e.ringSegs);
+          for (let i = 0; i < e.ringSegs; i++) {
+            const a = e.rotation + i * seg;
+            const rx = e.x + Math.cos(a) * e.radius;
+            const ry = e.y + Math.sin(a) * e.radius;
+            ctx.fillRect(rx - 4, ry - 4, 8, 8);
+          }
+          // 核心
+          ctx.fillStyle = flash ? '#ffffff' : e.coreColor;
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+          // 血条
+          const bw = 300, bh = 10;
+          const by = e.y - e.radius - 34;
+          ctx.fillStyle = 'rgba(0,0,0,0.65)';
+          ctx.fillRect(e.x - bw / 2, by, bw, bh);
+          ctx.fillStyle = '#ff3d81';
+          ctx.fillRect(e.x - bw / 2, by, bw * utils.clamp(e.hp / e.maxHp, 0, 1), bh);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(e.x - bw / 2 + bw * 0.4, by - 3, 2, bh + 6);
+          ctx.fillRect(e.x - bw / 2 + bw * 0.7, by - 3, 2, bh + 6);
+          ctx.restore();
+          continue;
+        }
         ctx.shadowColor = e.color;
         ctx.shadowBlur = 12;
         ctx.fillStyle = flash ? '#ffffff' : e.color;

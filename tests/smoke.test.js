@@ -263,3 +263,17 @@ test('精英护盾：先破盾再扣血', () => {
   game.damageEnemy(e, 10, 0, {});
   assert.ok(e.hp < before, '破盾后扣血');
 });
+
+test('Boss 阶段随血量切换且死亡进入胜利结算', () => {
+  const { game } = makeGame();
+  const b = game.spawnEnemy('boss', 750, 550, 1);
+  game.world.enemies.push(b);
+  game.damageEnemy(b, 1, 0, {});
+  assert.strictEqual(b.phase, 1, '满血为阶段1');
+  b.hp = b.maxHp * 0.5;
+  game.update(1 / 60);
+  assert.strictEqual(b.phase, 2, '血量 50% 应进入阶段2');
+  b.hp = 1;
+  game.damageEnemy(b, 5, 0, {});
+  assert.strictEqual(game.state.screen, 'win', 'Boss 死亡应胜利');
+});
