@@ -307,18 +307,22 @@ test('地图生成连通：起点可 BFS 到 Boss', () => {
   assert.ok(map.rooms.length >= 5, '至少 5 个房间');
 });
 
-test('进入战斗房刷怪，清空后开门', () => {
+test('进入战斗房刷怪，全部波次清空后开门', () => {
   const { game } = makeGame();
   game.startMap(999);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   assert.ok(combat, '应存在战斗房');
   game.enterRoom(combat.x, combat.y);
   assert.ok(game.world.enemies.length > 0, '战斗房应刷怪');
-  while (game.world.enemies.length) {
-    for (const e of [...game.world.enemies]) game.killEnemy(e);
+  assert.ok(combat.waveTotal >= 1 && combat.waveTotal <= 3, '波次应为 1~3');
+  let guard = 0;
+  while (!game.world.room.cleared && guard++ < 30) {
+    while (game.world.enemies.length) {
+      for (const e of [...game.world.enemies]) game.killEnemy(e);
+      game.update(0.1);
+    }
+    for (let i = 0; i < 40; i++) game.update(0.1); // 波次倒计时
   }
-  game.update(0.1); // 先消耗击杀 hit-stop
-  game.update(1 / 60);
   assert.ok(game.world.room.cleared, '清怪后房间应标记 cleared');
   assert.ok(Object.values(game.world.room.doors).some(Boolean), '应有门');
 });
@@ -453,7 +457,9 @@ test('Boss 血量翻倍且普通战斗房怪物量翻倍', () => {
   game.startMap(777);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
-  assert.ok(game.world.enemies.length >= 12, '普通战斗房至少 12 只怪（×3）');
+  const total = combat.waveCounts.reduce((a, c) => a + c, 0);
+  assert.ok(total >= 12, '普通战斗房总怪物量至少 12（×3）');
+  assert.ok(game.world.enemies.length > 0, '首波应有怪');
 });
 
 test('部件掉落概率降低30%，金币概率提高且按强弱给量', () => {
@@ -710,7 +716,7 @@ test('护甲回复改为低频少量', () => {
   assert.ok(game.world.player.armor >= 8, '每次恢复约 9 点');
 });
 
-test('清房后掉落物自动飞向玩家并带拖尾', () => {
+test('清房后掉落物不再自动飞向玩家', () => {
   const { game } = makeGame();
   game.world.room.cleared = true;
   game.spawnPickup('coin', game.world.player.x + 500, game.world.player.y, 3);
@@ -719,8 +725,7 @@ test('清房后掉落物自动飞向玩家并带拖尾', () => {
   k.vy = 0;
   const before = k.x;
   for (let i = 0; i < 60; i++) game.update(1 / 120);
-  assert.ok(k.x < before - 50, '清房后掉落物应飞向玩家');
-  assert.ok(game.world.particles.some(p => p.kind === 'spark'), '飞向玩家时应带拖尾粒子');
+  assert.ok(Math.abs(k.x - before) < 10, '清房后金币不应自动飞向玩家');
 });
 
 test('攻击初始房 NPC 触发战/不战选项', () => {
@@ -852,6 +857,92 @@ test('锻造房出现概率约80%', () => {
     if (Game.map.generate(s, 1).rooms.some(r => r.type === 'forge')) count++;
   }
   assert.ok(count >= total * 0.5 && count <= total * 0.95, '锻造房应约 80% 出现，实际 ' + count + '/' + total);
+});
+
+test('波次系统：清空后 3 秒倒计时生成下一波', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  if (combat.waveTotal === 1) return; // 单波房间无需测倒计时
+  while (game.world.enemies.length) {
+    for (const e of [...game.world.enemies]) game.killEnemy(e);
+    game.update(0.1);
+  }
+  game.update(0.1);
+  assert.strictEqual(combat.waveState, 'countdown', '应进入倒计时');
+  assert.ok(combat.waveSpawns.length > 0, '应显示下一波位置');
+  assert.ok(!game.world.room.cleared, '倒计时期间不算清房');
+  for (let i = 0; i < 35; i++) game.update(0.1);
+  assert.strictEqual(combat.waveState, 'active', '倒计时后应生成下一波');
+  assert.ok(combat.waveIndex >= 2, '波次应推进');
+  assert.ok(game.world.enemies.length > 0, '下一波敌人应出现');
+});
+
+test('进入敌人房间 3 秒警觉期敌人不行动', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  const e = game.world.enemies[0];
+  const sx = e.x, sy = e.y;
+  for (let i = 0; i < 300; i++) game.update(1 / 120); // 2.5s
+  assert.ok(Math.hypot(e.x - sx, e.y - sy) < 1, '警觉期内敌人不应移动');
+  for (let i = 0; i < 120; i++) game.update(1 / 120); // 再 1s
+  assert.ok(Math.hypot(e.x - sx, e.y - sy) > 1, '警觉结束后敌人应行动');
+});
+
+test('第二层毒 Boss：血量 ×3、毒圈持续伤害', () => {
+  const { game } = makeGame();
+  game.startMap(999, 2);
+  game.enterRoom(game.world.map.boss.x, game.world.map.boss.y);
+  const boss = game.world.enemies.find(e => e.kind === 'boss');
+  assert.ok(boss && boss.poison, '第二层 Boss 应为毒系');
+  assert.ok(boss.maxHp >= 3000, '毒 Boss 血量应约为 3 倍（3125）');
+  game.world.player.hp = 100;
+  game.world.player.armor = 0;
+  game.world.poisonZones.push({ x: game.world.player.x, y: game.world.player.y, r: 60, life: 2, maxLife: 2, dps: 20 });
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s
+  assert.ok(game.world.player.hp < 100, '毒圈应造成持续伤害');
+});
+
+test('背包上限 10：满包不拾取，红色小叉丢弃', () => {
+  const { game, Game } = makeGame();
+  for (let i = 0; i < 10; i++) game.world.inventory.push(Game.partsEngine.rollPart());
+  const part = Game.partsEngine.rollPart();
+  game.spawnPickup('part', game.world.player.x + 20, game.world.player.y, part);
+  const k = game.world.pickups[0];
+  k.vx = 0;
+  k.vy = 0;
+  for (let i = 0; i < 30; i++) game.update(1 / 120);
+  assert.ok(game.world.pickups.some(p => p === k), '满包时部件不应被拾取');
+  assert.strictEqual(game.world.inventory.length, 10, '容量保持 10');
+  game.world.pickups.length = 0; // 清掉地上的原掉落，便于验证丢弃不产生新掉落
+  game.openPanel('parts');
+  const row = game.ui.items[0];
+  game.uiClick(row.discardX, row.discardY);
+  assert.strictEqual(game.world.inventory.length, 9, '丢弃后容量减少');
+  assert.ok(!game.world.pickups.some(p => p.kind === 'part'), '丢弃不产生掉落物');
+});
+
+test('障碍物随扫描动画逐渐显现', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  assert.strictEqual(game.world.room.obstacleReveal, 0, '初始未显现');
+  for (let i = 0; i < 120; i++) game.update(1 / 120); // 1s
+  assert.ok(game.world.room.obstacleReveal > 0, '扫描进度推进');
+});
+
+test('进入房间时出现在门那一侧', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y, 'e');
+  assert.ok(game.world.player.x > 1200, '从东门进入应靠右');
+  game.enterRoom(combat.x, combat.y, 'n');
+  assert.ok(game.world.player.y < 200, '从北门进入应靠上');
 });
 
 test('触摸按钮：交互/换弹/切枪通过 tapQueue 生效', () => {

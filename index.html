@@ -648,7 +648,9 @@ const Game = (() => {
       armor: null,
       startNpc: null,
       forgeNpc: null,
-      fightNpc: false
+      fightNpc: false,
+      poisonZones: [],
+      banner: { text: '', sub: '', t: 0, dur: 0 }
     };
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null } };
@@ -677,7 +679,7 @@ const Game = (() => {
     }
 
     function pushPart(part) {
-      if (world.inventory.length >= 12) world.inventory.shift();
+      if (world.inventory.length >= 10) world.inventory.shift();
       world.inventory.push(part);
     }
 
@@ -794,13 +796,13 @@ const Game = (() => {
       return e;
     }
 
-    function spawnEnemyBullet(x, y, angle, speed, damage, color) {
+    function spawnEnemyBullet(x, y, angle, speed, damage, color, kind, life) {
       world.bullets.push({
         x, y, px: x, py: y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         damage, pierce: 0, friendly: false,
-        life: 6, color: color || '#ff9f43', size: 4, kind: 'enemy'
+        life: life || 6, color: color || '#ff9f43', size: 4, kind: kind || 'enemy'
       });
     }
 
@@ -874,6 +876,7 @@ const Game = (() => {
     }
 
     function updateEnemyAI(e, dt) {
+      if (world.room && world.room.alertT > 0) return; // 警觉期敌人不行动
       const p = world.player;
       const dx = p.x - e.x;
       const dy = p.y - e.y;
@@ -1051,6 +1054,9 @@ const Game = (() => {
           if (e.stateT <= 0) e.state = 'idle';
         }
       } else if (e.behavior === 'boss') {
+        if (e.poison) {
+          updatePoisonBoss(e, dt);
+        } else {
         const def = ENEMY_KINDS[e.kind];
         e.rotation += def.rotSpeed * dt * (e.phase >= 3 ? 2 : 1);
         const pct = e.hp / e.maxHp;
@@ -1118,7 +1124,72 @@ const Game = (() => {
             if (e.stateT <= 0) e.state = 'idle';
           }
         }
+        }
       }
+    }
+
+    function updatePoisonBoss(e, dt) {
+      const p = world.player;
+      const dx = p.x - e.x, dy = p.y - e.y;
+      const dist = Math.hypot(dx, dy) || 0.001;
+      const ux = dx / dist, uy = dy / dist;
+      e.rotation += 0.8 * dt * (e.phase >= 3 ? 2 : 1);
+      const pct = e.hp / e.maxHp;
+      if (pct <= 0.3 && e.phase < 3) {
+        e.phase = 3;
+        fx.burst(e.x, e.y, '#7ef29a', 20);
+        fx.shake(6);
+        audio.play('roar');
+        fx.slowmo(0.4, 0.3);
+      } else if (pct <= 0.6 && e.phase < 2) {
+        e.phase = 2;
+        fx.burst(e.x, e.y, '#7ef29a', 16);
+        fx.shake(6);
+        audio.play('roar');
+        fx.slowmo(0.4, 0.3);
+      }
+      e.x += ux * e.speed * dt;
+      e.y += uy * e.speed * dt;
+      e.burstCd -= dt;
+      const interval = e.phase >= 3 ? 0.8 : e.phase === 2 ? 1.0 : 1.4;
+      if (e.burstCd <= 0) {
+        e.burstCd = interval;
+        const count = e.phase >= 3 ? 18 : e.phase === 2 ? 12 : 8;
+        for (let a2 = 0; a2 < Math.PI * 2; a2 += Math.PI * 2 / count) {
+          spawnEnemyBullet(e.x, e.y, a2, 175, e.dmg * 0.7, '#7ef29a', 'poison', 2.6);
+        }
+        if (e.phase >= 2 && Math.random() < 0.6) {
+          for (let i = 0; i < 4; i++) {
+            spawnPoisonZone(
+              utils.clamp(e.x + utils.rand(-280, 280), 60, ROOM_W - 60),
+              utils.clamp(e.y + utils.rand(-280, 280), 60, ROOM_H - 60),
+              62
+            );
+          }
+        }
+        audio.play('zap');
+      }
+      if (e.phase >= 2) {
+        e.summonCd -= dt;
+        const buzzers = world.enemies.filter(x => x.kind === 'buzzer').length;
+        if (e.summonCd <= 0 && buzzers < 3) {
+          e.summonCd = 8;
+          world.enemies.push(spawnEnemy('buzzer', e.x + utils.rand(-80, 80), e.y + utils.rand(-80, 80), 1));
+          world.enemies.push(spawnEnemy('buzzer', e.x + utils.rand(-80, 80), e.y + utils.rand(-80, 80), 1));
+        }
+      }
+      if (e.phase >= 3) {
+        e.attackT -= dt;
+        if (e.attackT <= 0) {
+          e.attackT = 1.6;
+          const base = Math.atan2(dy, dx);
+          for (let f = -2; f <= 2; f++) {
+            spawnEnemyBullet(e.x, e.y, base + f * 0.16, 260, e.dmg, '#7ef29a', 'poison', 2.2);
+          }
+          audio.play('zap');
+        }
+      }
+      if (dist < 130) applyRawDamage(5 * dt); // 毒光环
     }
 
     // ===== fx（粒子/弹壳/曳光，对象池）=====
@@ -1329,6 +1400,46 @@ const Game = (() => {
       }
     }
 
+    function applyRawDamage(dmg) {
+      const p = world.player;
+      let d = dmg;
+      if (p.armor > 0) {
+        const absorbed = Math.min(p.armor, d);
+        p.armor -= absorbed;
+        d -= absorbed;
+      }
+      d *= (p.armorSpec ? p.armorSpec.dmgMul : 1);
+      p.hp -= d;
+      if (p.hp <= 0) {
+        p.hp = 0;
+        if (world.fightNpc) restart();
+        else setScreen('dead');
+      }
+    }
+
+    function spawnPoisonZone(x, y, r) {
+      world.poisonZones.push({ x, y, r, life: 4.5, maxLife: 4.5, dps: 7 });
+    }
+
+    function updatePoisonZones(dt) {
+      const p = world.player;
+      for (let i = world.poisonZones.length - 1; i >= 0; i--) {
+        const z = world.poisonZones[i];
+        z.life -= dt;
+        if (z.life <= 0) { utils.swapRemove(world.poisonZones, i); continue; }
+        if (Math.hypot(p.x - z.x, p.y - z.y) < z.r) {
+          applyRawDamage(z.dps * dt);
+          if (Math.random() < dt * 8) {
+            fx.spawn({
+              kind: 'spark', x: p.x + utils.rand(-12, 12), y: p.y + utils.rand(-12, 12),
+              vx: utils.rand(-15, 15), vy: utils.rand(-25, -5),
+              life: 0.4, color: '#7ef29a', size: 2.5
+            });
+          }
+        }
+      }
+    }
+
     function maybeDrop(e) {
       if (e.scale > 1.5) {
         spawnPickup('part', e.x, e.y, partsEngine.rollPart());
@@ -1419,6 +1530,8 @@ const Game = (() => {
       world.startNpc = null;
       world.forgeNpc = null;
       world.fightNpc = false;
+      world.poisonZones.length = 0;
+      world.banner = { text: '', sub: '', t: 0, dur: 0 };
       ui.chat = null;
       ui.forgeState = { mode: null, part: null };
       camera.x = ROOM_W / 2;
@@ -1743,7 +1856,7 @@ const Game = (() => {
         if (world.transition.t >= 0.6) {
           world.transition.active = false;
           if (world.transition.rx === 'next') advanceLayer();
-          else enterRoom(world.transition.rx, world.transition.ry);
+          else enterRoom(world.transition.rx, world.transition.ry, world.transition.dir);
         }
         return;
       }
@@ -1858,6 +1971,21 @@ const Game = (() => {
       separateEnemies();
       checkRoomProgress();
       checkDoors(dt);
+      const curRoom = world.room;
+      if (curRoom.waveState === 'countdown') {
+        curRoom.waveT -= dt;
+        if (curRoom.waveT <= 0) {
+          curRoom.waveState = 'active';
+          spawnWaveEnemies(curRoom, curRoom.waveCounts[curRoom.waveIndex], curRoom.waveSpawns);
+          curRoom.waveSpawns = [];
+          curRoom.waveIndex++;
+          setBanner('第 ' + curRoom.waveIndex + ' 波 / 共 ' + curRoom.waveTotal + ' 波', 1.4);
+        }
+      }
+      if (curRoom.alertT > 0) curRoom.alertT -= dt;
+      if (curRoom.obstacleReveal !== undefined && curRoom.obstacleReveal < 999) curRoom.obstacleReveal += dt;
+      world.banner.t += dt;
+      updatePoisonZones(dt);
       updateParticles(dt);
       updateCasings(dt);
       updateTracers(dt);
@@ -2015,6 +2143,7 @@ const Game = (() => {
         b.y += b.vy * dt;
         b.life -= dt;
         if (b.life <= 0 || b.x < r.x - 40 || b.x > r.w + 40 || b.y < r.y - 40 || b.y > r.h + 40) {
+          if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
           utils.swapRemove(world.bullets, i);
           continue;
         }
@@ -2029,6 +2158,7 @@ const Game = (() => {
           }
         }
         if (hitObs) {
+          if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
           utils.swapRemove(world.bullets, i);
           continue;
         }
@@ -2100,6 +2230,7 @@ const Game = (() => {
         } else {
           if (Math.hypot(p.x - b.x, p.y - b.y) < p.radius + b.size) {
             damagePlayer(b.damage, Math.atan2(b.vy, b.vx));
+            if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
             utils.swapRemove(world.bullets, i);
           }
         }
@@ -2162,7 +2293,7 @@ const Game = (() => {
         k.life -= dt;
         if (k.life <= 0) { utils.swapRemove(world.pickups, i); continue; }
         const d = Math.hypot(p.x - k.x, p.y - k.y);
-        const magnet = (k.kind === 'coin' && d < 260) || (world.room && world.room.cleared);
+        const magnet = k.kind === 'coin' && d < 260;
         if (magnet) {
           k.vx += (p.x - k.x) / (d || 1) * 700 * dt;
           k.vy += (p.y - k.y) / (d || 1) * 700 * dt;
@@ -2193,6 +2324,10 @@ const Game = (() => {
             fx.floater(p.x, p.y - 24, '+25', 'crit');
             audio.play('pickup');
           } else if (k.kind === 'part') {
+            if (world.inventory.length >= 10) {
+              fx.floater(p.x, p.y - 24, '背包已满', 'normal');
+              continue; // 满包不拾取
+            }
             pushPart(k.part);
             fx.floater(p.x, p.y - 24, '获得 ' + k.part.name, 'normal');
             audio.play('pickup');
@@ -2273,6 +2408,7 @@ const Game = (() => {
           if (room.doors.w && rect.x < 80) continue;
           if (room.doors.e && rect.x + rect.w > ROOM_W - 80) continue;
           if (list.some(o => utils.rectsOverlap(o.x - 30, o.y - 30, o.w + 60, o.h + 60, rect.x, rect.y, rect.w, rect.h))) continue;
+          rect.delay = list.length * 0.35;
           list.push(rect);
           break;
         }
@@ -2290,7 +2426,31 @@ const Game = (() => {
       return { x, y };
     }
 
-    function enterRoom(rx, ry) {
+    function setBanner(text, dur, sub) {
+      world.banner = { text, sub: sub || '', t: 0, dur };
+    }
+
+    function waveCountFor(room) {
+      const layerBonus = (world.layer - 1) * 2;
+      return Math.min(26, (4 + Math.floor(room.depth * 0.7) + layerBonus) * 3);
+    }
+
+    function pickEnemyKind() {
+      const rr = Math.random();
+      return rr < 0.4 ? 'chaser' : rr < 0.7 ? 'shooter' : rr < 0.9 ? 'splitter' : 'buzzer';
+    }
+
+    function spawnWaveEnemies(room, count, positions) {
+      for (let i = 0; i < count; i++) {
+        const pos = positions ? positions[i] : randSpawnPos();
+        const kind = positions ? positions[i].kind : pickEnemyKind();
+        const sc = positions ? (positions[i].scale || 1) :
+          (1 + room.depth * 0.12 + (world.layer - 1) * 0.2 + (Math.random() < 0.2 ? 1 : 0));
+        world.enemies.push(spawnEnemy(kind, pos.x, pos.y, sc));
+      }
+    }
+
+    function enterRoom(rx, ry, fromDir) {
       const room = world.map.rooms.find(r => r.x === rx && r.y === ry);
       if (!room) return;
       room.visited = true;
@@ -2305,38 +2465,67 @@ const Game = (() => {
       world.chest = null;
       world.chestPart = null;
       world.coinPile = null;
+      world.poisonZones.length = 0;
       world.shopOffers = [];
       world.shopPrices = [];
       world.shopPos = null;
       world.startNpc = null;
       world.forgeNpc = null;
-      camera.x = ROOM_W / 2;
-      camera.y = ROOM_H / 2;
-      world.player.x = ROOM_W / 2;
-      world.player.y = ROOM_H / 2;
+      let px = ROOM_W / 2, py = ROOM_H / 2;
+      if (fromDir === 'n') { px = ROOM_W / 2; py = 130; }
+      else if (fromDir === 's') { px = ROOM_W / 2; py = ROOM_H - 130; }
+      else if (fromDir === 'w') { px = 130; py = ROOM_H / 2; }
+      else if (fromDir === 'e') { px = ROOM_W - 130; py = ROOM_H / 2; }
+      world.player.x = px;
+      world.player.y = py;
+      camera.x = px;
+      camera.y = py;
       if (room.type === 'start' && !world.fightNpc) world.startNpc = { x: ROOM_W / 2 - 220, y: ROOM_H / 2, state: 'idle', scale: 1, transformT: 0 };
       else if (room.type === 'forge') world.forgeNpc = { x: ROOM_W / 2 - 200, y: ROOM_H / 2 };
       if (room.spawned || room.cleared) return;
       room.spawned = true;
       room.obstacles = genObstacles(room);
+      room.obstacleReveal = 0;
       if (room.type === 'combat') {
-        const layerBonus = (world.layer - 1) * 2;
-        const n = Math.min(26, (4 + Math.floor(room.depth * 0.7) + layerBonus) * 3);
-        for (let i = 0; i < n; i++) {
-          const rr = Math.random();
-          const kind = rr < 0.4 ? 'chaser' : rr < 0.7 ? 'shooter' : rr < 0.9 ? 'splitter' : 'buzzer';
-          const sc = 1 + room.depth * 0.12 + (world.layer - 1) * 0.2 + (Math.random() < 0.2 ? 1 : 0);
-          const pos = randSpawnPos();
-          world.enemies.push(spawnEnemy(kind, pos.x, pos.y, sc));
+        room.waveTotal = utils.randInt(1, 3);
+        room.waveIndex = 1;
+        room.waveState = 'active';
+        room.waveT = 0;
+        room.waveSpawns = [];
+        const total = waveCountFor(room);
+        const base = Math.floor(total / room.waveTotal);
+        const rem = total % room.waveTotal;
+        room.waveCounts = [];
+        for (let i = 0; i < room.waveTotal; i++) {
+          room.waveCounts.push(base + (i < rem ? 1 : 0));
         }
+        spawnWaveEnemies(room, room.waveCounts[0], null);
+        room.alertT = 3;
+        setBanner('第 1 波 / 共 ' + room.waveTotal + ' 波', 2.2, '敌人 3 秒后开始行动');
       } else if (room.type === 'elite') {
+        room.waveTotal = 1;
+        room.waveIndex = 1;
+        room.waveState = 'active';
+        room.waveSpawns = [];
         const pos = randSpawnPos();
         const es = 1 + (world.layer - 1) * 0.35;
         world.enemies.push(spawnEnemy('elite', pos.x, pos.y, es));
         world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
         world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
+        room.alertT = 3;
       } else if (room.type === 'boss') {
-        world.enemies.push(spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2 - 160, 1 + (world.layer - 1) * 0.4));
+        room.waveTotal = 1;
+        room.waveIndex = 1;
+        room.waveState = 'active';
+        room.waveSpawns = [];
+        const boss = spawnEnemy('boss', ROOM_W / 2, ROOM_H / 2 - 160, 1 + (world.layer - 1) * 0.4);
+        world.enemies.push(boss);
+        if (world.layer >= 2) {
+          boss.poison = true; // 第二层 Boss：毒系（血量 +200%）
+          boss.hp = Math.round(boss.hp * 3);
+          boss.maxHp = boss.hp;
+        }
+        room.alertT = 3;
       } else if (room.type === 'treasure') {
         world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
       } else if (room.type === 'coin') {
@@ -2358,6 +2547,21 @@ const Game = (() => {
       if (!room || room.cleared) return;
       const needsClear = room.type === 'combat' || room.type === 'elite' || room.type === 'boss';
       if (needsClear && world.enemies.length > 0) return;
+      if (room.type === 'combat' && room.waveState === 'active' && room.waveIndex < room.waveTotal) {
+        room.waveState = 'countdown';
+        room.waveT = 3;
+        room.waveSpawns = [];
+        for (let i = 0; i < room.waveCounts[room.waveIndex]; i++) {
+          const pos = randSpawnPos();
+          room.waveSpawns.push({
+            x: pos.x, y: pos.y,
+            kind: pickEnemyKind(),
+            scale: 1 + room.depth * 0.12 + (world.layer - 1) * 0.2
+          });
+        }
+        audio.play('ui');
+        return; // 尚未清房，进入下一波倒计时
+      }
       room.cleared = true;
       world.mapInfo.clearedRooms++;
       if (needsClear) {
@@ -2377,7 +2581,8 @@ const Game = (() => {
       else if (r.doors.w && p.x < zone) dir = { dx: -1, dy: 0 };
       else if (r.doors.e && p.x > r.w - zone) dir = { dx: 1, dy: 0 };
       if (dir) {
-        world.transition = { active: true, t: 0, rx: r.x + dir.dx, ry: r.y + dir.dy };
+        const dirName = dir.dy === -1 ? 'n' : dir.dy === 1 ? 's' : dir.dx === -1 ? 'w' : 'e';
+        world.transition = { active: true, t: 0, rx: r.x + dir.dx, ry: r.y + dir.dy, dir: dirName };
         audio.play('door');
       }
     }
@@ -2523,7 +2728,8 @@ const Game = (() => {
           rows.push({
             x: x0, y, w: panelW - 32, h: 44,
             part, price: null, action: 'equip',
-            denied, slotName: SLOT_NAMES[part.slot]
+            denied, slotName: SLOT_NAMES[part.slot],
+            discardX: x0 + panelW - 32 - 22, discardY: y + 22, discardR: 12
           });
           y += 52;
         }
@@ -2606,6 +2812,12 @@ const Game = (() => {
       }
     }
 
+    function discardPart(part) {
+      const idx = world.inventory.indexOf(part);
+      if (idx >= 0) utils.swapRemove(world.inventory, idx);
+      audio.play('deny');
+    }
+
     function uiClick(x, y) {
       if (ui.chat && ui.chat.buttons) {
         for (const b of ui.chat.buttons) {
@@ -2628,6 +2840,12 @@ const Game = (() => {
           if (row.action === 'equip') {
             if (row.denied) {
               audio.play('deny');
+              return;
+            }
+            if (x >= row.discardX - row.discardR && x <= row.discardX + row.discardR &&
+                y >= row.discardY - row.discardR && y <= row.discardY + row.discardR) {
+              discardPart(row.part);
+              buildPanelRows();
               return;
             }
             equipPart(row.part);
@@ -2704,6 +2922,7 @@ const Game = (() => {
       drawScanline();
       drawDoors();
       drawObstacles();
+      drawPoisonZones();
       drawBullets();
       drawCasings();
       drawImpactMarks();
@@ -2714,6 +2933,7 @@ const Game = (() => {
       drawMarkers();
       drawNpcs();
       drawPortal();
+      drawWavePreview();
       drawEnemies();
       drawFloaters();
       drawDashGhosts();
@@ -2721,6 +2941,8 @@ const Game = (() => {
       ctx.restore();
       drawHUD();
       drawTouchUI();
+      drawAlert();
+      drawBanner();
       drawPanel();
       drawChat();
       drawOverlay();
@@ -2873,7 +3095,7 @@ const Game = (() => {
         const flash = e.flash > 0;
         ctx.save();
         if (e.kind === 'boss') {
-          const phaseColor = e.phase >= 3 ? '#ff4d5e' : e.phase === 2 ? '#ffd166' : '#35e0ff';
+          const phaseColor = e.poison ? '#7ef29a' : (e.phase >= 3 ? '#ff4d5e' : e.phase === 2 ? '#ffd166' : '#35e0ff');
           const rr = e.radius * (e.renderScale || 1);
           if (e.specialNpc) {
             // 作者 NPC 变身后的外观：保持 NPC 彩虹三角造型，放大 300%
@@ -3349,11 +3571,22 @@ const Game = (() => {
           } else if (row.action === 'equip') {
             ctx.fillStyle = row.denied ? '#ff4d5e' : 'rgba(53,224,255,0.8)';
             ctx.textAlign = 'right';
-            ctx.fillText(row.denied ? '已装备同类' : '装备', row.x + row.w - 14, row.y + 26);
+            ctx.fillText(row.denied ? '已装备同类' : '装备', row.x + row.w - 52, row.y + 26);
           } else if (row.action === 'take') {
             ctx.fillStyle = '#7ef29a';
             ctx.textAlign = 'right';
             ctx.fillText('领取', row.x + row.w - 14, row.y + 26);
+          }
+          if (row.action === 'equip') {
+            ctx.strokeStyle = '#ff4d5e';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            const dx = row.discardX, dy = row.discardY, dr = 7;
+            ctx.moveTo(dx - dr, dy - dr);
+            ctx.lineTo(dx + dr, dy + dr);
+            ctx.moveTo(dx + dr, dy - dr);
+            ctx.lineTo(dx - dr, dy + dr);
+            ctx.stroke();
           }
         }
         ctx.globalAlpha = 1;
@@ -3441,7 +3674,25 @@ const Game = (() => {
     function drawObstacles() {
       const obs = world.room.obstacles || [];
       const ac = accent();
+      const reveal = world.room.obstacleReveal !== undefined ? world.room.obstacleReveal : 999;
       for (const o of obs) {
+        const local = reveal - (o.delay || 0);
+        if (local < 0) {
+          // 扫描光束：障碍物随扫描逐渐显现
+          const remaining = -local;
+          const progress = utils.clamp(1 - remaining / 0.6, 0, 1);
+          const beamX = o.x + progress * o.w;
+          ctx.globalAlpha = 0.5;
+          ctx.fillStyle = ac;
+          ctx.fillRect(beamX - 2, o.y, 4, o.h);
+          ctx.globalAlpha = 0.12;
+          ctx.fillStyle = ac;
+          ctx.fillRect(o.x, o.y, o.w, o.h);
+          ctx.globalAlpha = 1;
+          continue;
+        }
+        const alpha = Math.min(1, local / 0.25);
+        ctx.globalAlpha = alpha;
         ctx.fillStyle = '#101826';
         ctx.fillRect(o.x, o.y, o.w, o.h);
         ctx.strokeStyle = ac;
@@ -3455,7 +3706,48 @@ const Game = (() => {
         ctx.strokeRect(o.x + 5, o.y + 5, o.w - 10, o.h - 10);
         ctx.fillStyle = 'rgba(255,255,255,0.07)';
         ctx.fillRect(o.x + 3, o.y + 3, o.w - 6, 5);
+        ctx.globalAlpha = 1;
       }
+    }
+
+    function drawPoisonZones() {
+      for (const z of world.poisonZones) {
+        const a = utils.clamp(z.life / z.maxLife, 0, 1);
+        ctx.globalAlpha = a * 0.35;
+        ctx.fillStyle = '#7ef29a';
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = a * 0.5;
+        ctx.strokeStyle = '#7ef29a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.r * (0.8 + 0.2 * Math.sin(world.time * 3 + z.x)), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawWavePreview() {
+      const room = world.room;
+      if (!room || room.waveState !== 'countdown') return;
+      for (const s of room.waveSpawns) {
+        const def = ENEMY_KINDS[s.kind] || ENEMY_KINDS.chaser;
+        const pulse = 0.8 + 0.2 * Math.sin(world.time * 5);
+        ctx.globalAlpha = 0.8 * pulse;
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, def.radius * (s.scale || 1), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = 'bold 18px Consolas, monospace';
+      ctx.fillText('下一波 ' + Math.ceil(room.waveT), ROOM_W / 2, ROOM_H / 2 - 40);
     }
 
     function drawImpactMarks() {
@@ -3646,6 +3938,37 @@ const Game = (() => {
         ctx.textAlign = 'center';
         ctx.fillText(b.label, b.x, b.y + 5);
       }
+    }
+
+    function drawAlert() {
+      const room = world.room;
+      if (!room || room.alertT <= 0 || world.enemies.length === 0) return;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255, 77, 94, 0.9)';
+      ctx.font = 'bold 20px Consolas, monospace';
+      ctx.fillText('敌人尚未察觉 · ' + Math.ceil(room.alertT), view.w / 2, 90);
+    }
+
+    function drawBanner() {
+      const b = world.banner;
+      if (!b.text || b.dur <= 0) return;
+      const t = b.t / b.dur;
+      if (t > 1) return;
+      const alpha = utils.clamp(Math.min(t * 3, (1 - t) * 3), 0, 1);
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#35e0ff';
+      ctx.font = 'bold 46px Consolas, monospace';
+      ctx.shadowColor = '#35e0ff';
+      ctx.shadowBlur = 16;
+      ctx.fillText(b.text, view.w / 2, view.h * 0.32);
+      ctx.shadowBlur = 0;
+      if (b.sub) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = '16px Consolas, monospace';
+        ctx.fillText(b.sub, view.w / 2, view.h * 0.32 + 32);
+      }
+      ctx.globalAlpha = 1;
     }
 
     function drawMinimap() {
