@@ -99,7 +99,7 @@ const Game = (() => {
       sniper_body: { id: 'sniper_body', slot: 'body', name: '狙击枪身', rarity: 3, color: '#b06cff', desc: '高伤慢速',
         base: { fireRate: 1.1, damage: 65, magSize: 4, reloadTime: 1.6, spread: 0.005, pierce: 1 } },
       heavy_body: { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', desc: '大弹鼓',
-        base: { fireRate: 6, damage: 22, magSize: 48, reloadTime: 2.2, spread: 0.07 } }
+        base: { fireRate: 6, damage: 15.4, magSize: 48, reloadTime: 2.2, spread: 0.07 } }
     },
     ammo: {
       standard_ammo: { id: 'standard_ammo', slot: 'ammo', name: '标准弹药', rarity: 0, color: '#ffd166', desc: '无特殊',
@@ -666,13 +666,20 @@ const Game = (() => {
     function spawnPickup(kind, x, y, payload) {
       const a = Math.random() * Math.PI * 2;
       const sp = 180 + Math.random() * 140;
-      world.pickups.push({
+      const k = {
         kind, x, y,
         vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
         life: 30,
         part: kind === 'part' ? payload : null,
         value: kind === 'coin' ? payload : 0
-      });
+      };
+      const obs = world.room.obstacles || [];
+      for (const o of obs) {
+        const res = utils.resolveCircleRect(k.x, k.y, 6, o);
+        k.x = res.x;
+        k.y = res.y;
+      }
+      world.pickups.push(k);
     }
 
     // ===== 敌人 =====
@@ -680,7 +687,7 @@ const Game = (() => {
       const k = ENEMY_KINDS[kind];
       const s = scale || 1;
       const hpScale = 1 + (s - 1) * 0.6;
-      return {
+      const e = {
         id: world.enemySeq++,
         kind, x, y, vx: 0, vy: 0,
         hp: k.hp * hpScale, maxHp: k.hp * hpScale,
@@ -692,11 +699,13 @@ const Game = (() => {
         dashAngle: 0, fireT: k.fireInterval || 0, attackT: 0,
         shield: k.shield || 0, maxShield: k.maxShield || (k.shield || 0),
         shieldRegen: k.shieldRegen || 0, shieldDelay: 0,
-        extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0 },
+        extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0, flank: Math.random() < 0.5 ? -1 : 1 },
         phase: 1, rotation: 0, rotSpeed: k.rotSpeed || 0,
         ringSegs: k.ringSegs || 0,
         burstCd: k.burstCd || 0, summonCd: k.summonCd || 0, dashCd: 0
       };
+      if (e.kind === 'elite') e.attackT = 1.2;
+      return e;
     }
 
     function spawnEnemyBullet(x, y, angle, speed, damage, color) {
@@ -746,6 +755,35 @@ const Game = (() => {
       }
     }
 
+    function bounceDash(e) {
+      e.dashAngle = (e.dashAngle + Math.PI) % (Math.PI * 2);
+      e.stateT = 0.12;
+      fx.sparks(e.x, e.y, e.color, 4);
+    }
+
+    function separateEnemies() {
+      const es = world.enemies;
+      for (let i = 0; i < es.length; i++) {
+        for (let j = i + 1; j < es.length; j++) {
+          const a = es[i], b = es[j];
+          if (a.dead || b.dead) continue;
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const minD = a.radius + b.radius;
+          const d = Math.hypot(dx, dy) || 0.001;
+          if (d < minD) {
+            const push = (minD - d) * 0.5;
+            const wx = dx / d, wy = dy / d;
+            const wa = a.kind === 'boss' ? 0.2 : a.kind === 'elite' ? 0.5 : 1;
+            const wb = b.kind === 'boss' ? 0.2 : b.kind === 'elite' ? 0.5 : 1;
+            a.x -= wx * push * wb;
+            a.y -= wy * push * wb;
+            b.x += wx * push * wa;
+            b.y += wy * push * wa;
+          }
+        }
+      }
+    }
+
     function updateEnemyAI(e, dt) {
       const p = world.player;
       const dx = p.x - e.x;
@@ -759,8 +797,14 @@ const Game = (() => {
       if (e.behavior === 'chase_telegraph_dash') {
         const spd = e.speed * (e.slowT > 0 ? (1 - (e.slowPct || 0)) : 1);
         if (e.state === 'idle') {
-          e.x += ux * spd * dt;
-          e.y += uy * spd * dt;
+          const flank = e.extra.flank || 1;
+          const lat = Math.sin(world.time * 2.2 + e.id * 1.7) * 0.55;
+          let mx2 = ux + (-uy) * lat * flank;
+          let my2 = uy + ux * lat * flank;
+          if (dist < 90) { mx2 = -ux; my2 = -uy; } // 太近先拉开
+          const ml = Math.hypot(mx2, my2) || 1;
+          e.x += (mx2 / ml) * spd * dt;
+          e.y += (my2 / ml) * spd * dt;
           if (dist < (k.engageRange || 260)) { e.state = 'telegraph'; e.stateT = k.telegraphT; }
         } else if (e.state === 'telegraph') {
           if (e.stateT <= 0) {
@@ -779,7 +823,21 @@ const Game = (() => {
         } else if (e.state === 'dash') {
           e.x += Math.cos(e.dashAngle) * k.dashSpeed * dt;
           e.y += Math.sin(e.dashAngle) * k.dashSpeed * dt;
-          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle);
+          if (dist < e.radius + p.radius + 4) {
+            damagePlayer(e.dmg, e.dashAngle);
+            bounceDash(e);
+          } else {
+            for (const other of world.enemies) {
+              if (other === e || other.dead) continue;
+              if (Math.hypot(other.x - e.x, other.y - e.y) < e.radius + other.radius) {
+                bounceDash(e);
+                const a2 = Math.atan2(other.y - e.y, other.x - e.x);
+                other.x += Math.cos(a2) * 12;
+                other.y += Math.sin(a2) * 12;
+                break;
+              }
+            }
+          }
           if (e.stateT <= 0) { e.state = 'recover'; e.stateT = k.cooldown; }
         } else if (e.state === 'recover') {
           if (e.stateT <= 0) e.state = 'idle';
@@ -810,8 +868,14 @@ const Game = (() => {
           }
         }
       } else if (e.behavior === 'splitter') {
-        e.x += ux * e.speed * dt;
-        e.y += uy * e.speed * dt;
+        const flank = e.extra.flank || 1;
+        const lat = Math.sin(world.time * 2.2 + e.id * 1.7) * 0.5;
+        let mx2 = ux + (-uy) * lat * flank;
+        let my2 = uy + ux * lat * flank;
+        if (dist < 80) { mx2 = -ux; my2 = -uy; }
+        const ml = Math.hypot(mx2, my2) || 1;
+        e.x += (mx2 / ml) * e.speed * dt;
+        e.y += (my2 / ml) * e.speed * dt;
         e.attackT -= dt;
         if (e.attackT <= 0 && dist < (k.spitRange || 150)) {
           e.attackT = k.spitInterval || 1.6;
@@ -862,12 +926,22 @@ const Game = (() => {
         }
       } else if (e.behavior === 'elite') {
         if (e.state === 'idle') {
-          if (dist > 200) {
+          if (dist > 240) {
             e.x += ux * e.speed * dt;
             e.y += uy * e.speed * dt;
+          } else if (dist < 150) {
+            e.x -= ux * e.speed * dt;
+            e.y -= uy * e.speed * dt;
           } else {
-            e.state = 'telegraph';
-            e.stateT = k.telegraphT;
+            if (e.attackT <= 0) {
+              e.state = 'telegraph';
+              e.stateT = k.telegraphT;
+            } else {
+              e.attackT -= dt;
+              const lat = Math.sin(world.time * 1.8 + e.id) * 0.6;
+              e.x += (-uy) * e.speed * lat * dt;
+              e.y += ux * e.speed * lat * dt;
+            }
           }
         } else if (e.state === 'telegraph') {
           if (e.stateT <= 0) {
@@ -1316,7 +1390,7 @@ const Game = (() => {
           beginRun();
         }
         if (input.pressedSet.has('KeyB')) {
-          if (ui.panel === 'parts') closePanel();
+          if (ui.panel !== 'none') closePanel();
           else openPanel('parts');
         }
         if (input.pressedSet.has('KeyE')) {
@@ -1448,6 +1522,7 @@ const Game = (() => {
       updateGun(dt);
       updateBullets(dt);
       updateEnemies(dt);
+      separateEnemies();
       checkRoomProgress();
       checkDoors(dt);
       updateParticles(dt);
@@ -1738,7 +1813,7 @@ const Game = (() => {
         k.life -= dt;
         if (k.life <= 0) { utils.swapRemove(world.pickups, i); continue; }
         const d = Math.hypot(p.x - k.x, p.y - k.y);
-        if (k.kind === 'coin' && d < 130) {
+        if (k.kind === 'coin' && d < 260) {
           k.vx += (p.x - k.x) / (d || 1) * 700 * dt;
           k.vy += (p.y - k.y) / (d || 1) * 700 * dt;
           if (Math.random() < dt * 30) {
@@ -1753,6 +1828,12 @@ const Game = (() => {
         k.vy *= Math.exp(-3 * dt);
         k.x += k.vx * dt;
         k.y += k.vy * dt;
+        const obs = world.room.obstacles || [];
+        for (const o of obs) {
+          const res = utils.resolveCircleRect(k.x, k.y, 6, o);
+          k.x = res.x;
+          k.y = res.y;
+        }
         if (d < p.radius + 12) {
           if (k.kind === 'coin') {
             world.coins += k.value;
@@ -1874,7 +1955,6 @@ const Game = (() => {
       world.chest = null;
       world.chestPart = null;
       world.coinPile = null;
-      world.portal = null;
       world.shopOffers = [];
       world.shopPrices = [];
       world.shopPos = null;

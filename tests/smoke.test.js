@@ -519,6 +519,95 @@ test('掉落物向四周飞溅且金币磁吸带拖尾', () => {
   assert.ok(game.world.particles.some(p => p.kind === 'spark'), '金币磁吸应有拖尾粒子');
 });
 
+test('金币吸取范围增加100%（200px 即可吸取）', () => {
+  const { game } = makeGame();
+  game.spawnPickup('coin', game.world.player.x + 200, game.world.player.y, 3);
+  const k = game.world.pickups[0];
+  k.vx = 0;
+  k.vy = 0;
+  const before = k.x;
+  for (let i = 0; i < 30; i++) game.update(1 / 120);
+  assert.ok(k.x < before - 10, '200px 距离应开始被吸取');
+});
+
+test('部件掉落在障碍物里会被推出', () => {
+  const { game, Game } = makeGame();
+  game.world.room.obstacles = [{ x: 700, y: 500, w: 100, h: 60 }];
+  game.spawnPickup('part', 720, 520, Game.partsEngine.rollPart());
+  const k = game.world.pickups[0];
+  const inside = k.x + 6 > 700 && k.x - 6 < 800 && k.y + 6 > 500 && k.y - 6 < 560;
+  assert.ok(!inside, '掉落物出生即应被推出障碍物');
+  game.update(1 / 120);
+  const inside2 = k.x + 6 > 700 && k.x - 6 < 800 && k.y + 6 > 500 && k.y - 6 < 560;
+  assert.ok(!inside2, '移动后也不应卡在障碍物内');
+});
+
+test('重型武器伤害减少30%', () => {
+  const { Game } = makeGame();
+  assert.strictEqual(Game.PARTS.body.heavy_body.base.damage, 15.4, '重型 22→15.4');
+});
+
+test('怪物追击带侧向摆动而非直线', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  game.world.player.x = 600;
+  game.world.player.y = 100;
+  game.world.enemies.push(e);
+  let maxDev = 0;
+  for (let i = 0; i < 300; i++) {
+    game.update(1 / 120);
+    maxDev = Math.max(maxDev, Math.abs(e.y - 100));
+  }
+  assert.ok(maxDev > 5, '追击应有侧向摆动，maxDev=' + maxDev.toFixed(1));
+});
+
+test('B 键在商店打开时关闭面板而非切换', () => {
+  const { game } = makeGame();
+  game.openPanel('shop');
+  game.input.pressedSet.add('KeyB');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.panel, 'none', 'B 应关闭商店面板');
+});
+
+test('敌人之间有碰撞体积', () => {
+  const { game } = makeGame();
+  const a = game.spawnEnemy('chaser', 100, 100, 1);
+  const b = game.spawnEnemy('chaser', 110, 100, 1);
+  game.world.enemies.push(a, b);
+  for (let i = 0; i < 10; i++) game.update(1 / 120);
+  const d = Math.hypot(a.x - b.x, a.y - b.y);
+  assert.ok(d >= a.radius + b.radius - 1, '敌人不应重叠，距离=' + d.toFixed(1));
+});
+
+test('红冲锋冲刺撞到玩家会被弹开', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  e.state = 'dash';
+  e.dashAngle = 0;
+  e.stateT = 0.35;
+  game.world.player.x = 140;
+  game.world.player.y = 100;
+  game.world.enemies.push(e);
+  game.update(1 / 120);
+  game.update(1 / 120);
+  assert.ok(Math.abs(e.dashAngle - Math.PI) < 0.15, '冲刺撞到玩家应反向弹开，实际=' + e.dashAngle);
+});
+
+test('传送门跨房间保留', () => {
+  const { game } = makeGame();
+  game.beginRun();
+  const b = game.spawnEnemy('boss', 750, 390, 1);
+  b.hp = 1;
+  game.world.enemies.push(b);
+  game.damageEnemy(b, 5, 0, {});
+  game.update(0.1);
+  game.update(0.2);
+  assert.ok(game.world.portal, '应出现传送门');
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  assert.ok(game.world.portal, '进入其他房间后传送门应保留');
+});
+
 test('障碍物阻挡子弹与角色', () => {
   const { game } = makeGame();
   game.world.room.obstacles = [{ x: 700, y: 500, w: 100, h: 60 }];
