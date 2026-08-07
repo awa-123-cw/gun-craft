@@ -1445,18 +1445,21 @@ test('障碍物分裂上限：大面积最多分裂2次，小面积最多1次', 
   const { game } = makeGame();
   game.setScreen('playing');
   const room = game.world.room;
-  room.obstacles = [{ x: 500, y: 300, w: 220, h: 140, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }]; // 30800 大面积
+  room.obstacles = [{ x: 500, y: 300, w: 220, h: 140, hp: 200, maxHp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }]; // 30800 大面积
   const fire = (ox, oy) => {
     game.world.bullets.push({ x: ox, y: oy, px: ox, py: oy, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
     game.update(1 / 120);
   };
   const target = room.obstacles[0];
+  assert.strictEqual(target.maxHp, 200, '本体障碍物应有 maxHp=200');
   target.hp = 0;
   fire(600, 360);
   assert.ok(room.obstacles.length >= 2 && room.obstacles.length <= 4, '大面积第一次应分裂 2~4 块，实际 ' + room.obstacles.length);
   room.obstacles = [room.obstacles[0]];
   const p2 = room.obstacles[0];
   assert.strictEqual(p2.splits, 1, '第一轮产物 splits 应为 1');
+  assert.strictEqual(p2.maxHp, 80, '分裂块应有自己的 maxHp=80');
+  assert.strictEqual(p2.hp, p2.maxHp, '分裂块应从满血开始（0% 红、不闪烁）');
   assert.ok(p2.w * p2.h >= 3500, '第一轮产物面积仍应属于大面积（可再分裂一次）');
   p2.hp = 0;
   fire(p2.x + p2.w / 2, p2.y + p2.h / 2);
@@ -1490,6 +1493,7 @@ test('瞬身推动小型障碍物并伤害路径敌人', () => {
   const o = game.world.room.obstacles[0];
   assert.ok(Math.hypot(o.kvx, o.kvy) > 0, '瞬身应推动障碍物');
   assert.ok(e.hp < hp0, '路径上的敌人应受到障碍物伤害');
+  assert.ok(Number.isInteger(hp0 - e.hp), '撞击伤害应为整数，实际扣血 ' + (hp0 - e.hp));
 });
 
 test('重叠障碍物自动分离不堆叠', () => {

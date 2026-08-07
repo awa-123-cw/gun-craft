@@ -3447,7 +3447,7 @@ const Game = (() => {
             o.kvx += Math.cos(world.dash.angle) * 700;
             o.kvy += Math.sin(world.dash.angle) * 700;
             o.vr += utils.rand(-4, 4);
-            const dmg = Math.min(50, (o.w * o.h) / 80);
+            const dmg = Math.round(Math.min(50, (o.w * o.h) / 80));
             for (const e of world.enemies) {
               if (e.dead) continue;
               if (Math.hypot(e.x - o.x, e.y - o.y) < 140 + e.radius) {
@@ -3470,7 +3470,7 @@ const Game = (() => {
             o.kvx += Math.cos(dirAngle) * 550;
             o.kvy += Math.sin(dirAngle) * 550;
             o.vr += utils.rand(-4, 4);
-            const dmg = Math.min(50, (o.w * o.h) / 80);
+            const dmg = Math.round(Math.min(50, (o.w * o.h) / 80));
             damagePlayer(dmg, dirAngle);
             audio.play('boom');
           }
@@ -3535,7 +3535,7 @@ const Game = (() => {
         const spread = (i - (pieces - 1) / 2) * (o.w * 0.35);
         list.push({
           x: o.x + (o.w - nw) / 2 + spread, y: o.y + (o.h - nh) / 2 + utils.rand(-10, 10),
-          w: nw, h: nh, delay: 0, hp: 80,
+          w: nw, h: nh, delay: 0, hp: 80, maxHp: 80,
           kvx: Math.cos(ang) * sp, kvy: Math.sin(ang) * sp,
           rot: Math.random() * 0.5, vr: (Math.random() - 0.5) * 8,
           splits: (o.splits || 0) + 1, knockT: -9
@@ -3594,7 +3594,7 @@ const Game = (() => {
           if (room.doors.e && rect.x + rect.w > ROOM_W - 80) continue;
           if (list.some(o => utils.rectsOverlap(o.x - 30, o.y - 30, o.w + 60, o.h + 60, rect.x, rect.y, rect.w, rect.h))) continue;
           rect.delay = list.length * 0.18;
-          rect.hp = 200;
+          rect.hp = 200; rect.maxHp = 200;
           rect.kvx = 0; rect.kvy = 0; rect.rot = 0; rect.vr = 0;
           rect.splits = 0; rect.knockT = -9;
           list.push(rect);
@@ -4992,8 +4992,8 @@ const Game = (() => {
         ctx.strokeRect(-o.w / 2 + 5, -o.h / 2 + 5, o.w - 10, o.h - 10);
         ctx.fillStyle = 'rgba(255,255,255,0.07)';
         ctx.fillRect(-o.w / 2 + 3, -o.h / 2 + 3, o.w - 6, 5);
-        if (o.hp !== undefined && o.hp < 200) {
-          const dmgPct = utils.clamp(1 - o.hp / 200, 0, 1);
+        if (o.hp !== undefined && o.hp < (o.maxHp || 200)) {
+          const dmgPct = utils.clamp(1 - o.hp / (o.maxHp || 200), 0, 1);
           const red = 0.7 * dmgPct;
           const flash = 0.55 + 0.45 * Math.sin(world.time * (4 + 14 * dmgPct));
           ctx.fillStyle = 'rgba(255, 40, 60, ' + (red * flash).toFixed(3) + ')';
