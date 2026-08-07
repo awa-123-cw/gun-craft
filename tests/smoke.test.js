@@ -1595,6 +1595,7 @@ test('手柄空闲时角色不面向鼠标位置', () => {
   p.x = 600; p.y = 500;
   p.aimAngle = 1.0;
   game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 }; // 手柄连接但无输入
+  game.input.padInput = true; // 当前使用手柄
   game.input.mouse.x = 480; game.input.mouse.y = 270; // 鼠标在远处
   for (let i = 0; i < 10; i++) game.update(1 / 120);
   assert.ok(Math.abs(p.aimAngle - 1.0) < 0.01, '手柄空闲时不应面朝鼠标位置，当前 ' + p.aimAngle);
@@ -1617,6 +1618,7 @@ test('手柄开火时辅助瞄准平滑吸附敌人', () => {
   const e = game.spawnEnemy('chaser', 800, 500, 1);
   game.world.enemies.push(e);
   game.input.gp = { fire: true, ax: 0, ay: 0, lx: 0, ly: 0 };
+  game.input.padInput = true;
   for (let i = 0; i < 30; i++) game.update(1 / 120);
   assert.ok(Math.abs(p.aimAngle) < 0.35, '开火时应向敌人吸附转向，当前 ' + p.aimAngle);
 });
@@ -1751,4 +1753,22 @@ test('手柄模式视角以玩家为中心，键鼠模式视角随光标移动',
   const expected = 600 + (600 + 200 * 0.32 - 600) * (8 / 120); // 600 + 64*(8/120)
   assert.ok(Math.abs(game.camera.x - expected) < 0.5, '键鼠模式视角应按 32% 偏向鼠标，实际 ' + game.camera.x.toFixed(3) + ' 期望 ' + expected.toFixed(3));
   assert.ok(Math.abs(game.camera.y - 500) < 0.01, '鼠标水平方向时视角不应上下偏移');
+});
+
+test('手柄转键鼠后角色恢复面向鼠标', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const p = game.world.player;
+  p.x = 600; p.y = 500; p.vx = 0; p.vy = 0;
+  game.camera.x = p.x; game.camera.y = p.y;
+  p.aimAngle = 1.2;
+  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 }; // 手柄仍连接
+  game.input.padInput = true; // 当前手柄模式（空闲）
+  game.input.mouse.x = 480 + 100 * 1.875; // 鼠标在玩家右侧
+  game.input.mouse.y = 270;
+  game.update(1 / 120);
+  assert.ok(Math.abs(p.aimAngle - 1.2) < 0.01, '手柄模式空闲时应保持朝向，当前 ' + p.aimAngle);
+  game.input.padInput = false; // 切回键鼠（手柄仍连接）
+  game.update(1 / 120);
+  assert.ok(Math.abs(p.aimAngle) < 0.01, '切回键鼠后应面向鼠标方向，当前 ' + p.aimAngle);
 });

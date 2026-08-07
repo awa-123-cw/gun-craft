@@ -2904,7 +2904,7 @@ const Game = (() => {
         input.mouse.y = input.touch.aimPos.y;
       }
       const stickAim = gp && (Math.abs(gp.ax) > 0.2 || Math.abs(gp.ay) > 0.2);
-      if (gp && (stickAim || gp.fire)) {
+      if (input.padInput && gp && (stickAim || gp.fire)) {
         // 手柄：右摇杆定方向，开火时辅助瞄准吸附（同手机端），平滑转向
         let desired = stickAim ? Math.atan2(gp.ay, gp.ax) : p.aimAngle;
         if (gp.fire) {
@@ -2915,7 +2915,8 @@ const Game = (() => {
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         p.aimAngle += utils.clamp(diff, -8 * dt, 8 * dt); // 平滑转向，不生硬
-      } else if (!gp) {
+      } else if (!input.padInput) {
+        // 键鼠模式（含手柄仍连接但已切回键鼠）：面向鼠标
         const mx = sxToWx(input.mouse.x);
         const my = syToWy(input.mouse.y);
         const manualAngle = Math.atan2(my - p.y, mx - p.x);
