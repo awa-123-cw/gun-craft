@@ -1008,6 +1008,7 @@ test('窄屏启用触摸 UI 且触摸按钮可点击', () => {
   const dashBtn = btns.find(b => b.id === 'dash');
   const interactBtn = btns.find(b => b.id === 'interact');
   assert.ok(interactBtn.x <= 700, '按钮应在屏内');
+  assert.ok(dashBtn.x > 350, '瞬身按钮应移到右侧');
   game.handleClick(dashBtn.x, dashBtn.y);
   assert.ok(game.input.dashTap, '点击瞬身按钮应触发瞬身');
   game.world.chest = { x: 750, y: 550, opened: false };
@@ -1025,11 +1026,38 @@ test('手机端辅助自动瞄准吸附最近敌人', () => {
   game.input.touch.aimPos = { x: 1000, y: 300 }; // 大致向右
   game.world.player.x = 750;
   game.world.player.y = 550;
-  const e = game.spawnEnemy('chaser', 900, 600, 1);
+  const e = game.spawnEnemy('shooter', 900, 600, 1);
   game.world.enemies.push(e);
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 平滑转动 0.5s 后收敛
+  assert.ok(Math.abs(game.world.player.aimAngle - 0.32) < 0.2, '应平滑吸附到最近敌人，实际=' + game.world.player.aimAngle);
+});
+
+test('背包满时"背包已满"提示只弹一次', () => {
+  const { game, Game } = makeGame();
+  game.setScreen('playing');
+  for (let i = 0; i < 10; i++) game.world.inventory.push(Game.partsEngine.rollPart());
+  const part = { id: 'pistol_body', slot: 'body', name: '标准枪身', rarity: 0, color: '#35e0ff', affixes: [] };
+  game.spawnPickup('part', game.world.player.x + 18, game.world.player.y, part);
+  const k = game.world.pickups[0];
+  k.vx = 0;
+  k.vy = 0;
+  for (let i = 0; i < 60; i++) game.update(1 / 120);
+  const count = game.world.floaters.filter(f => f.text === '背包已满').length;
+  assert.strictEqual(count, 1, '满包提示应只弹一次，实际 ' + count + ' 次');
+});
+
+test('作者 Boss 朝向跟随玩家', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  const n = game.world.startNpc;
+  game.world.bullets.push({ x: n.x + 10, y: n.y, vx: 0, vy: 0, damage: 5, friendly: true, life: 5, size: 3, trail: [] });
   game.update(1 / 120);
-  const expect = Math.atan2(50, 150);
-  assert.ok(Math.abs(game.world.player.aimAngle - expect) < 0.05, '应吸附到最近敌人，实际=' + game.world.player.aimAngle);
+  game.handleClick(game.ui.chat.buttons[0].x + 5, game.ui.chat.buttons[0].y + 5);
+  const boss = game.world.enemies.find(e => e.specialNpc);
+  game.world.player.x = boss.x;
+  game.world.player.y = boss.y + 200;
+  for (let i = 0; i < 30; i++) game.update(1 / 120);
+  assert.ok(Math.abs(boss.facing - Math.PI / 2) < 0.3, 'Boss 应朝向下方的玩家，实际=' + boss.facing);
 });
 
 test('手机端面板打开时点击背包按钮可关闭', () => {

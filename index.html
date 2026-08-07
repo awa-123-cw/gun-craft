@@ -1673,11 +1673,11 @@ const Game = (() => {
     function touchButtons() {
       if (isTouchUI) {
         return [
-          { id: 'dash', x: 84, y: view.h - 150, r: 34, label: '闪' },
-          { id: 'interact', x: view.w - 60, y: view.h - 104, r: 30, label: 'E' },
-          { id: 'reload', x: view.w - 60, y: view.h - 176, r: 30, label: 'R' },
-          { id: 'switch', x: view.w - 60, y: view.h - 248, r: 30, label: '换' },
-          { id: 'panel', x: view.w - 60, y: view.h - 320, r: 30, label: '包' },
+          { id: 'dash', x: view.w - 132, y: view.h - 104, r: 34, label: '闪' },
+          { id: 'interact', x: view.w - 56, y: view.h - 104, r: 30, label: 'E' },
+          { id: 'reload', x: view.w - 56, y: view.h - 176, r: 30, label: 'R' },
+          { id: 'switch', x: view.w - 56, y: view.h - 248, r: 30, label: '换' },
+          { id: 'panel', x: view.w - 132, y: view.h - 176, r: 30, label: '包' },
           { id: 'pause', x: 40, y: 42, r: 22, label: 'II' }
         ];
       }
@@ -1967,10 +1967,16 @@ const Game = (() => {
       } else {
         const mx = input.mouse.x + camera.x - view.w / 2;
         const my = input.mouse.y + camera.y - view.h / 2;
-        p.aimAngle = Math.atan2(my - p.y, mx - p.x);
+        const manualAngle = Math.atan2(my - p.y, mx - p.x);
         if (isTouchUI && input.touch.firing) {
-          const best = assistAim(p, mx, my);
-          if (best !== null) p.aimAngle = best; // 辅助自动瞄准
+          const target = assistAim(p, mx, my);
+          const desired = target !== null ? target : manualAngle;
+          let diff = desired - p.aimAngle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          p.aimAngle += utils.clamp(diff, -8 * dt, 8 * dt); // 平滑转向，不生硬
+        } else {
+          p.aimAngle = manualAngle;
         }
       }
 
@@ -2435,7 +2441,10 @@ const Game = (() => {
             audio.play('pickup');
           } else if (k.kind === 'part') {
             if (world.inventory.length >= 10) {
-              fx.floater(p.x, p.y - 24, '背包已满', 'normal');
+              if (!k.notified) {
+                k.notified = true;
+                fx.floater(p.x, p.y - 24, '背包已满', 'normal');
+              }
               continue; // 满包不拾取
             }
             pushPart(k.part);
@@ -3251,6 +3260,7 @@ const Game = (() => {
             const col = 'hsl(' + hue + ',85%,60%)';
             ctx.save();
             ctx.translate(e.x, e.y);
+            ctx.rotate(e.facing || 0);
             ctx.shadowColor = col;
             ctx.shadowBlur = 22;
             ctx.fillStyle = flash ? '#ffffff' : col;
@@ -3481,6 +3491,12 @@ const Game = (() => {
           ctx.beginPath();
           ctx.arc(k.x, k.y, 3, 0, Math.PI * 2);
           ctx.fill();
+          if (world.inventory.length >= 10) {
+            ctx.fillStyle = '#ff4d5e';
+            ctx.font = '10px Consolas, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('满', k.x, k.y - 12);
+          }
         }
       }
     }
