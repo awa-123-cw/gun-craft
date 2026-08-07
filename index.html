@@ -3494,21 +3494,35 @@ const Game = (() => {
         o.x = utils.clamp(o.x, 20, ROOM_W - o.w - 20);
         o.y = utils.clamp(o.y, 20, ROOM_H - o.h - 20);
       }
-      // 障碍物彼此分离，避免堆叠
-      for (let i = 0; i < obs.length; i++) {
-        for (let j = i + 1; j < obs.length; j++) {
-          const a = obs[i], b = obs[j];
-          if (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y) {
-            const ox = Math.min(a.x + a.w - b.x, b.x + b.w - a.x);
-            const oy = Math.min(a.y + a.h - b.y, b.y + b.h - a.y);
-            if (ox < oy) {
-              const push = ox / 2;
-              if (a.x < b.x) { a.x -= push; b.x += push; } else { a.x += push; b.x -= push; }
-            } else {
-              const push = oy / 2;
-              if (a.y < b.y) { a.y -= push; b.y += push; } else { a.y += push; b.y -= push; }
+      separateObstacles();
+    }
+
+    function separateObstacles() {
+      // 多趟分离 + 每趟回界：靠墙时不会再被 clamp 弹回导致持续重叠
+      const obs = world.room.obstacles || [];
+      for (let pass = 0; pass < 6; pass++) {
+        let moved = false;
+        for (let i = 0; i < obs.length; i++) {
+          for (let j = i + 1; j < obs.length; j++) {
+            const a = obs[i], b = obs[j];
+            if (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y) {
+              const ox = Math.min(a.x + a.w - b.x, b.x + b.w - a.x);
+              const oy = Math.min(a.y + a.h - b.y, b.y + b.h - a.y);
+              if (ox < oy) {
+                const push = ox / 2;
+                if (a.x < b.x) { a.x -= push; b.x += push; } else { a.x += push; b.x -= push; }
+              } else {
+                const push = oy / 2;
+                if (a.y < b.y) { a.y -= push; b.y += push; } else { a.y += push; b.y -= push; }
+              }
+              moved = true;
             }
           }
+        }
+        if (!moved) break;
+        for (const o of obs) {
+          o.x = utils.clamp(o.x, 20, ROOM_W - o.w - 20);
+          o.y = utils.clamp(o.y, 20, ROOM_H - o.h - 20);
         }
       }
     }
@@ -3798,10 +3812,14 @@ const Game = (() => {
     }
 
     // ===== 面板 UI =====
+    function nowMs() {
+      return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    }
+
     function openPanel(name) {
       ui.panel = name;
       ui.scroll = 0;
-      ui.openAt = world.time;
+      ui.openAt = nowMs();
       state.paused = true;
       buildPanelRows();
       audio.play('ui');
@@ -4752,7 +4770,7 @@ const Game = (() => {
       ctx.fillStyle = 'rgba(4, 8, 14, 0.82)';
       ctx.fillRect(0, 0, view.w, view.h);
       const { panelW, panelH, px, py } = panelMetrics();
-      const openT = utils.clamp((world.time - (ui.openAt || -9)) * 6, 0, 1);
+      const openT = utils.clamp((nowMs() - (ui.openAt || 0)) / 160, 0, 1);
       const sc = 0.92 + 0.08 * openT;
       ctx.save();
       ctx.globalAlpha = openT;
@@ -4885,6 +4903,7 @@ const Game = (() => {
         ctx.fillRect(trackX, thumbY, 4, thumbH);
       }
       ctx.textAlign = 'left';
+      ctx.restore();
     }
 
     function drawChat() {
@@ -4927,8 +4946,7 @@ const Game = (() => {
       ctx.textAlign = 'right';
       ctx.fillText('右键关闭', bx + bw - 14, by + bh - 12);
       ctx.textAlign = 'left';
-
-      ctx.restore();    }
+    }
 
     function drawScanline() {
       const r = world.room;
@@ -5314,7 +5332,7 @@ const Game = (() => {
         const color = room.type === 'start' ? accent() : (MINIMAP_COLORS[room.type] || '#666666');
         ctx.fillStyle = room.visited ? color : 'rgba(255,255,255,0.14)';
         ctx.fillRect(px, py, cell, cell);
-        if (!room.visited && ['treasure', 'shop', 'coin', 'forge', 'elite'].includes(room.type)) {
+        if (!room.visited && ['treasure', 'shop', 'coin', 'forge'].includes(room.type)) {
           ctx.fillStyle = 'rgba(255,255,255,0.85)';
           ctx.font = 'bold ' + (mobile ? 12 : 18) + 'px Consolas, monospace';
           ctx.textAlign = 'center';

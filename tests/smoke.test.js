@@ -8,10 +8,13 @@ const HTML_PATH = path.join(__dirname, '..', 'index.html');
 
 function buildContext() {
   const noop = () => {};
+  const counters = { saves: 0, restores: 0 };
   const ctx = new Proxy({}, {
     get(t, k) {
       if (k === 'measureText') return () => ({ width: 0 });
       if (k === 'canvas') return canvas;
+      if (k === 'save') return () => { counters.saves++; };
+      if (k === 'restore') return () => { counters.restores++; };
       return typeof k === 'string' ? () => undefined : undefined;
     },
     set() { return true; }
@@ -29,6 +32,7 @@ function buildContext() {
   const context = {
     console, Math, JSON, Date, Object, Array, Number, String, Boolean,
     performance: { now: () => Date.now() },
+    __ctxCounters: counters,
     requestAnimationFrame: noop, cancelAnimationFrame: noop,
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
     AudioContext: function () { return audioCtx; },
@@ -1507,4 +1511,36 @@ test('重叠障碍物自动分离不堆叠', () => {
   const [a, b] = game.world.room.obstacles;
   const overlap = a.x < b.x + b.w - 1 && a.x + a.w > b.x + 1 && a.y < b.y + b.h - 1 && a.y + a.h > b.y + 1;
   assert.ok(!overlap, '重叠障碍物应被自动分离');
+});
+
+test('面板打开时渲染保持 save/restore 平衡（修复画面延伸）', () => {
+  const { ctx, game } = makeGame();
+  game.openPanel('chest');
+  assert.ok(game.ui.openAt > 100000, '开启动画应使用毫秒时钟（暂停时也能推进）');
+  game.render(0);
+  game.render(0);
+  game.render(0);
+  assert.strictEqual(ctx.__ctxCounters.saves, ctx.__ctxCounters.restores, '渲染不应泄漏画布变换');
+});
+
+test('靠墙重叠障碍物多趟分离后不再重叠且不越界', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.room.obstacles = [
+    { x: 20, y: 400, w: 100, h: 60, hp: 200, maxHp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 },
+    { x: 70, y: 400, w: 100, h: 60, hp: 200, maxHp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }
+  ];
+  for (let i = 0; i < 120; i++) game.update(1 / 120); // 1 秒
+  const [a, b] = game.world.room.obstacles;
+  const overlap = a.x < b.x + b.w - 1 && a.x + a.w > b.x + 1 && a.y < b.y + b.h - 1 && a.y + a.h > b.y + 1;
+  assert.ok(!overlap, '靠墙障碍物也应被分离，实际 a=' + a.x.toFixed(1) + ',' + a.y.toFixed(1) + ' b=' + b.x.toFixed(1) + ',' + b.y.toFixed(1));
+  assert.ok(a.x >= 20 && a.y >= 20 && b.x >= 20 && b.y >= 20, '障碍物不应被推出房间边界');
+});
+
+test('小地图问号不标记精英/敌人房间', () => {
+  const src = fs.readFileSync(HTML_PATH, 'utf8');
+  const line = src.match(/!room\.visited && \[[^\]]+\]/);
+  assert.ok(line, '应能找到小地图问号判定');
+  assert.ok(!line[0].includes("'elite'"), '问号列表不应包含精英房（敌人房）');
+  assert.ok(line[0].includes("'treasure'") && line[0].includes("'forge'"), '功能性房间应保留问号标记');
 });
