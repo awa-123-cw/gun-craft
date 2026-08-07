@@ -667,6 +667,7 @@ const Game = (() => {
     const ctx = canvas.getContext('2d');
     let acc = 0, last = 0, raf = 0;
     let touchMode = false;
+    let isTouchUI = false;
 
     function gun() { return world.guns[world.activeGun]; }
     function accent() {
@@ -1626,6 +1627,18 @@ const Game = (() => {
         }
         return false;
       }
+      if (isTouchUI) {
+        const btn = hitTouchButton(mx, my);
+        if (btn) {
+          if (btn.id === 'dash') input.dashTap = true;
+          else if (btn.id === 'reload') input.tapQueue.add('reload');
+          else if (btn.id === 'interact') input.tapQueue.add('interact');
+          else if (btn.id === 'switch') input.tapQueue.add('switchR');
+          else if (btn.id === 'panel') input.tapQueue.add('panel');
+          else if (btn.id === 'pause') input.tapQueue.add('pause');
+          return true;
+        }
+      }
       input.mouseHard = true;
       return true;
     }
@@ -1651,13 +1664,14 @@ const Game = (() => {
       const dpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
       view.w = canvas.clientWidth || window.innerWidth || 960;
       view.h = canvas.clientHeight || window.innerHeight || 540;
+      isTouchUI = touchMode || view.w < 780;
       canvas.width = Math.round(view.w * dpr);
       canvas.height = Math.round(view.h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function touchButtons() {
-      if (view.w < 780) {
+      if (isTouchUI) {
         return [
           { id: 'dash', x: 84, y: view.h - 150, r: 34, label: '闪' },
           { id: 'interact', x: view.w - 60, y: view.h - 104, r: 30, label: 'E' },
@@ -1734,32 +1748,58 @@ const Game = (() => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       for (const t of e.changedTouches) {
-        const x = t.clientX - rect.left;
-        const y = t.clientY - rect.top;
-        if (t.identifier === input.touch.moveId) {
-          let vx = x - input.touch.moveOrigin.x;
-          let vy = y - input.touch.moveOrigin.y;
-          const len = Math.hypot(vx, vy);
-          const maxR = 60;
-          if (len > maxR) { vx = (vx / len) * maxR; vy = (vy / len) * maxR; }
-          input.touch.moveVec = { x: vx, y: vy };
-        } else if (t.identifier === input.touch.aimId) {
-          input.touch.aimPos = { x, y };
-        }
+        updateTouchMove(t.identifier, t.clientX - rect.left, t.clientY - rect.top);
       }
     }
 
     function onTouchEnd(e) {
       e.preventDefault();
       for (const t of e.changedTouches) {
-        if (t.identifier === input.touch.moveId) {
-          input.touch.moveId = null;
-          input.touch.moveVec = { x: 0, y: 0 };
-        } else if (t.identifier === input.touch.aimId) {
-          input.touch.aimId = null;
-          input.touch.firing = false;
-        }
+        releaseTouch(t.identifier);
       }
+    }
+
+    function updateTouchMove(id, x, y) {
+      if (id === input.touch.moveId) {
+        let vx = x - input.touch.moveOrigin.x;
+        let vy = y - input.touch.moveOrigin.y;
+        const len = Math.hypot(vx, vy);
+        const maxR = 60;
+        if (len > maxR) { vx = (vx / len) * maxR; vy = (vy / len) * maxR; }
+        input.touch.moveVec = { x: vx, y: vy };
+      } else if (id === input.touch.aimId) {
+        input.touch.aimPos = { x, y };
+      }
+    }
+
+    function releaseTouch(id) {
+      if (id === input.touch.moveId) {
+        input.touch.moveId = null;
+        input.touch.moveVec = { x: 0, y: 0 };
+      } else if (id === input.touch.aimId) {
+        input.touch.aimId = null;
+        input.touch.firing = false;
+      }
+    }
+
+    function onPointerDown(e) {
+      if (e.pointerType === 'mouse') return; // 鼠标仍走原路径
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      handleTouchPoint(e.clientX - rect.left, e.clientY - rect.top, e.pointerId);
+    }
+
+    function onPointerMove(e) {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      updateTouchMove(e.pointerId, e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    function onPointerUp(e) {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      releaseTouch(e.pointerId);
     }
 
     function pollGamepad() {
@@ -3867,7 +3907,7 @@ const Game = (() => {
     function drawHUD() {
       const g = gun();
       const p = world.player;
-      const mobile = touchMode && view.w < 780;
+      const mobile = isTouchUI;
       ctx.fillStyle = 'rgba(53, 224, 255, 0.7)';
       ctx.font = (mobile ? 11 : 14) + 'px Consolas, monospace';
       ctx.textAlign = 'left';
@@ -3981,7 +4021,7 @@ const Game = (() => {
     }
 
     function drawTouchUI() {
-      if (!touchMode || state.screen !== 'playing') return;
+      if (!isTouchUI || state.screen !== 'playing') return;
       const t = input.touch;
       if (t.moveId !== null) {
         ctx.globalAlpha = 0.35;
@@ -4032,7 +4072,7 @@ const Game = (() => {
       if (!room || room.alertT == null || room.alertT <= 0 || world.enemies.length === 0) return;
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255, 77, 94, 0.9)';
-      ctx.font = 'bold ' + ((touchMode && view.w < 780) ? 16 : 20) + 'px Consolas, monospace';
+      ctx.font = 'bold ' + (isTouchUI ? 16 : 20) + 'px Consolas, monospace';
       ctx.fillText('敌人尚未察觉 · ' + Math.ceil(room.alertT), view.w / 2, 90);
     }
 
@@ -4045,14 +4085,14 @@ const Game = (() => {
       ctx.globalAlpha = alpha;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#35e0ff';
-      ctx.font = 'bold ' + ((touchMode && view.w < 780) ? 32 : 46) + 'px Consolas, monospace';
+      ctx.font = 'bold ' + (isTouchUI ? 32 : 46) + 'px Consolas, monospace';
       ctx.shadowColor = '#35e0ff';
       ctx.shadowBlur = 16;
       ctx.fillText(b.text, view.w / 2, view.h * 0.32);
       ctx.shadowBlur = 0;
       if (b.sub) {
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.font = ((touchMode && view.w < 780) ? 12 : 16) + 'px Consolas, monospace';
+        ctx.font = (isTouchUI ? 12 : 16) + 'px Consolas, monospace';
         ctx.fillText(b.sub, view.w / 2, view.h * 0.32 + 32);
       }
       ctx.globalAlpha = 1;
@@ -4060,7 +4100,7 @@ const Game = (() => {
 
     function drawMinimap() {
       if (!world.map) return;
-      const mobile = touchMode && view.w < 780;
+      const mobile = isTouchUI;
       const cell = mobile ? 10 : 14, gap = 2;
       const gw = world.map.gridW || 3;
       const gh = world.map.gridH || 3;
@@ -4111,7 +4151,7 @@ const Game = (() => {
     }
 
     function overlayButtons() {
-      const mobile = touchMode && view.w < 780;
+      const mobile = isTouchUI;
       const bw = mobile ? 200 : 220, bh = mobile ? 42 : 46;
       const cx = view.w / 2;
       const list = [];
@@ -4132,7 +4172,7 @@ const Game = (() => {
 
     function drawOverlay() {
       if (state.screen === 'playing') return;
-      const mobile = touchMode && view.w < 780;
+      const mobile = isTouchUI;
       ctx.fillStyle = 'rgba(4, 8, 14, 0.78)';
       ctx.fillRect(0, 0, view.w, view.h);
       ctx.textAlign = 'center';
@@ -4238,10 +4278,18 @@ const Game = (() => {
       }
       touchMode = !!(('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0));
       if (canvas.addEventListener) {
-        canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-        canvas.addEventListener('touchmove', onTouchMove, { passive: false });
-        canvas.addEventListener('touchend', onTouchEnd, { passive: false });
-        canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+        const usePointer = typeof window !== 'undefined' && 'PointerEvent' in window;
+        if (usePointer) {
+          canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+          canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+          canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+          canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+        } else {
+          canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+          canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+          canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+          canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+        }
       }
       onResize();
       last = performance.now();
@@ -4255,6 +4303,13 @@ const Game = (() => {
       equipPart, pushPart, spawnPickup,
       openPanel, closePanel, uiClick, panelMetrics, buildPanelRows, closeChat,
       handleClick, handleTouchPoint, portalVisible,
+      isTouchUI: () => isTouchUI,
+      touchButtons,
+      debugSetView(w, h) {
+        view.w = w;
+        view.h = h;
+        isTouchUI = touchMode || view.w < 780;
+      },
       startMap, enterRoom,
       update, render, start, setScreen, restart, beginRun, hudData,
       VERSION

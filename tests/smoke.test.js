@@ -999,6 +999,23 @@ test('手机端：开始界面点击任意处开始', () => {
   assert.strictEqual(game.state.screen, 'playing', '手机端点击应开始游戏');
 });
 
+test('窄屏启用触摸 UI 且触摸按钮可点击', () => {
+  const { game } = makeGame();
+  game.debugSetView(600, 800);
+  assert.ok(game.isTouchUI(), '窄屏应启用触摸 UI');
+  game.setScreen('playing');
+  const btns = game.touchButtons();
+  const dashBtn = btns.find(b => b.id === 'dash');
+  const interactBtn = btns.find(b => b.id === 'interact');
+  assert.ok(interactBtn.x <= 600, '按钮应在屏内');
+  game.handleClick(dashBtn.x, dashBtn.y);
+  assert.ok(game.input.dashTap, '点击瞬身按钮应触发瞬身');
+  game.world.chest = { x: 750, y: 550, opened: false };
+  game.handleClick(interactBtn.x, interactBtn.y);
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.panel, 'chest', '点击交互按钮应打开宝箱');
+});
+
 test('子弹耗尽自动换弹', () => {
   const { game } = makeGame();
   game.setScreen('playing');
