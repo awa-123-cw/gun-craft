@@ -3101,17 +3101,22 @@ const Game = (() => {
         }
       }
 
-      // 视角随准星走：目标点偏向鼠标方向 32%，并限制在房间可视范围内
-      const mxw = sxToWx(input.mouse.x);
-      const myw = syToWy(input.mouse.y);
+      // 视角：手柄模式始终以玩家为中心；键鼠模式随准星走（偏向鼠标方向 32%）
       const r = world.room;
       const halfW = view.w / 2 / ZOOM, halfH = view.h / 2 / ZOOM;
       const minX = halfW >= r.w / 2 ? r.w / 2 : halfW;
       const maxX = halfW >= r.w / 2 ? r.w / 2 : r.w - halfW;
       const minY = halfH >= r.h / 2 ? r.h / 2 : halfH;
       const maxY = halfH >= r.h / 2 ? r.h / 2 : r.h - halfH;
-      const tx = utils.clamp(p.x + (mxw - p.x) * 0.32, minX, maxX);
-      const ty = utils.clamp(p.y + (myw - p.y) * 0.32, minY, maxY);
+      let tx, ty;
+      if (input.padInput) {
+        tx = p.x; ty = p.y; // 手柄模式：视角固定在玩家身上
+      } else {
+        const mxw = sxToWx(input.mouse.x);
+        const myw = syToWy(input.mouse.y);
+        tx = utils.clamp(p.x + (mxw - p.x) * 0.32, minX, maxX);
+        ty = utils.clamp(p.y + (myw - p.y) * 0.32, minY, maxY);
+      }
       camera.x += (tx - camera.x) * Math.min(1, 8 * dt);
       camera.y += (ty - camera.y) * Math.min(1, 8 * dt);
       world.time += dt;

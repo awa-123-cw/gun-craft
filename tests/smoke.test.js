@@ -1727,3 +1727,28 @@ test('手柄输入后 0.4s 内的鼠标移动不会抢回光标（防手柄鼠�
   game.onMouseMove({ clientX: 220, clientY: 220 }); // 真实鼠标移动
   assert.strictEqual(canvas.style.cursor, 'crosshair', '真实鼠标移动应恢复光标');
 });
+
+test('手柄模式视角以玩家为中心，键鼠模式视角随光标移动', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const p = game.world.player;
+  p.x = 600; p.y = 500; p.vx = 0; p.vy = 0;
+  game.camera.x = p.x; game.camera.y = p.y;
+  game.input.mouse.x = 480 + 200 * 1.875; // 鼠标在玩家右侧 200px
+  game.input.mouse.y = 270;
+  // 手柄模式：视角固定在玩家身上
+  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 };
+  game.input.padInput = true;
+  game.update(1 / 120);
+  assert.ok(Math.abs(game.camera.x - 600) < 0.01 && Math.abs(game.camera.y - 500) < 0.01,
+    '手柄模式视角应以玩家为中心，实际 ' + game.camera.x.toFixed(3) + ',' + game.camera.y.toFixed(3));
+  // 键鼠模式：视角应朝鼠标方向偏移（32%）
+  game.input.padInput = false;
+  game.input.gp = null;
+  p.x = 600; p.y = 500; p.vx = 0; p.vy = 0;
+  game.camera.x = 600; game.camera.y = 500;
+  game.update(1 / 120);
+  const expected = 600 + (600 + 200 * 0.32 - 600) * (8 / 120); // 600 + 64*(8/120)
+  assert.ok(Math.abs(game.camera.x - expected) < 0.5, '键鼠模式视角应按 32% 偏向鼠标，实际 ' + game.camera.x.toFixed(3) + ' 期望 ' + expected.toFixed(3));
+  assert.ok(Math.abs(game.camera.y - 500) < 0.01, '鼠标水平方向时视角不应上下偏移');
+});
