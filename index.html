@@ -102,26 +102,26 @@ const Game = (() => {
         base: { fireRate: 1.1, damage: 65, magSize: 4, reloadTime: 1.6, spread: 0.005, pierce: 1 } },
       heavy_body: { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', desc: '大弹鼓',
         base: { fireRate: 6, damage: 15.4, magSize: 48, reloadTime: 2.2, spread: 0.07 } },
-      burst_body: { id: 'burst_body', slot: 'body', name: '连发枪身', rarity: 1, color: '#7ef29a', desc: '高射速连发',
-        base: { fireRate: 18, damage: 5, magSize: 30, reloadTime: 1.3, spread: 0.11 } },
-      revolver_body: { id: 'revolver_body', slot: 'body', name: '左轮枪身', rarity: 2, color: '#4dc9ff', desc: '大威力六发',
-        base: { fireRate: 3.5, damage: 34, magSize: 6, reloadTime: 1.0, spread: 0.04 } },
-      railgun_body: { id: 'railgun_body', slot: 'body', name: '磁轨枪身', rarity: 3, color: '#b06cff', desc: '高穿透重炮',
-        base: { fireRate: 1.4, damage: 80, magSize: 2, reloadTime: 1.8, spread: 0.003, pierce: 2, lifeMul: 1.3 } },
-      minigun_body: { id: 'minigun_body', slot: 'body', name: '加特林枪身', rarity: 4, color: '#ff8f3d', desc: '极限射速',
-        base: { fireRate: 22, damage: 4, magSize: 90, reloadTime: 2.4, spread: 0.13 } },
-      lever_body: { id: 'lever_body', slot: 'body', name: '杠杆枪身', rarity: 2, color: '#cfd8ff', desc: '快速换弹',
-        base: { fireRate: 4.5, damage: 26, magSize: 7, reloadTime: 0.8, spread: 0.05 } },
-      dual_body: { id: 'dual_body', slot: 'body', name: '双管枪身', rarity: 1, color: '#ffd166', desc: '双弹齐发',
-        base: { fireRate: 2.5, damage: 18, magSize: 4, reloadTime: 1.4, spread: 0.18, pellet: 2 } },
-      arc_body: { id: 'arc_body', slot: 'body', name: '电弧枪身', rarity: 3, color: '#35e0ff', desc: '短程强击',
-        base: { fireRate: 5, damage: 16, magSize: 10, reloadTime: 1.1, spread: 0.08, lifeMul: 0.7 } },
-      burst3_body: { id: 'burst3_body', slot: 'body', name: '三连点射枪身', rarity: 2, color: '#7ef29a', desc: '精准连点',
-        base: { fireRate: 6, damage: 12, magSize: 15, reloadTime: 1.2, spread: 0.06 } },
-      drill_body: { id: 'drill_body', slot: 'body', name: '钻头枪身', rarity: 4, color: '#ff4d5e', desc: '破甲穿透',
-        base: { fireRate: 7, damage: 20, magSize: 20, reloadTime: 1.5, spread: 0.05, pierce: 1 } },
-      laser_body: { id: 'laser_body', slot: 'body', name: '激光枪身', rarity: 3, color: '#b06cff', desc: '超远射程',
-        base: { fireRate: 3, damage: 40, magSize: 6, reloadTime: 1.4, spread: 0.001, lifeMul: 1.5 } }
+      burst3_body: { id: 'burst3_body', slot: 'body', name: '三点火枪身', rarity: 1, color: '#7ef29a', desc: '三连点射节奏',
+        base: { burst: 3, fireRate: 2.5, damage: 11, magSize: 15, reloadTime: 1.2, spread: 0.05 } },
+      revolver_body: { id: 'revolver_body', slot: 'body', name: '左轮枪身', rarity: 2, color: '#4dc9ff', desc: '高伤低容快换+自带暴击',
+        base: { fireRate: 3.5, damage: 36, magSize: 6, reloadTime: 0.9, spread: 0.03, critChance: 0.1 } },
+      gauss_body: { id: 'gauss_body', slot: 'body', name: '高斯枪身', rarity: 3, color: '#b06cff', desc: '高穿透超远射程重后坐',
+        base: { fireRate: 1.2, damage: 70, magSize: 3, reloadTime: 1.7, spread: 0.003, pierce: 3, bulletSpeedMul: 1.3, lifeMul: 1.5, recoilMul: 1.4 } },
+      volley_body: { id: 'volley_body', slot: 'body', name: '齐射枪身', rarity: 4, color: '#ff8f3d', desc: '水平三连星远距霰弹',
+        base: { fireRate: 3, damage: 11, magSize: 9, reloadTime: 1.3, spread: 0.09, pellet: 3, lifeMul: 1.1 } },
+      minigun_body: { id: 'minigun_body', slot: 'body', name: '加特林枪身', rarity: 4, color: '#ff8f3d', desc: '极限射速大弹鼓+发散',
+        base: { fireRate: 20, damage: 4.5, magSize: 100, reloadTime: 2.4, spread: 0.12, recoilMul: 1.6 } },
+      burst2_body: { id: 'burst2_body', slot: 'body', name: '二连冲枪身', rarity: 1, color: '#7ef29a', desc: '二连发冲锋',
+        base: { burst: 2, fireRate: 3.5, damage: 10, magSize: 24, reloadTime: 1.2, spread: 0.08 } },
+      cannon_body: { id: 'cannon_body', slot: 'body', name: '手炮枪身', rarity: 4, color: '#ff8f3d', desc: '枪身自带爆炸',
+        base: { fireRate: 1.5, damage: 50, magSize: 5, reloadTime: 1.5, spread: 0.02, explosionRadius: 60 } },
+      plasma_body: { id: 'plasma_body', slot: 'body', name: '等离子枪身', rarity: 2, color: '#4dc9ff', desc: '枪身自带灼烧',
+        base: { fireRate: 8, damage: 10, magSize: 20, reloadTime: 1.1, spread: 0.07, burnDps: 3, burnT: 1.5 } },
+      pump_body: { id: 'pump_body', slot: 'body', name: '泵动枪身', rarity: 2, color: '#4dc9ff', desc: '单发极速泵动',
+        base: { fireRate: 1.8, damage: 30, magSize: 1, reloadTime: 0.55, spread: 0.06 } },
+      drill_body: { id: 'drill_body', slot: 'body', name: '钻头枪身', rarity: 4, color: '#ff8f3d', desc: '穿透型机枪',
+        base: { fireRate: 12, damage: 8, magSize: 40, reloadTime: 1.8, spread: 0.09, pierce: 3 } }
     },
     ammo: {
       standard_ammo: { id: 'standard_ammo', slot: 'ammo', name: '标准弹药', rarity: 0, color: '#ffd166', desc: '无特殊',
@@ -136,26 +136,26 @@ const Game = (() => {
         base: { pellet: 1, explosionRadius: 90 } },
       chain_ammo: { id: 'chain_ammo', slot: 'ammo', name: '电磁链弹', rarity: 4, color: '#35e0ff', desc: '命中电链传导 x2',
         base: { pellet: 1, chain: 2 } },
-      buckshot_ammo: { id: 'buckshot_ammo', slot: 'ammo', name: '鹿弹', rarity: 2, color: '#ffd166', desc: '三片弹',
-        base: { pellet: 3 } },
-      heavy_ammo: { id: 'heavy_ammo', slot: 'ammo', name: '重弹', rarity: 3, color: '#ff8f3d', desc: '伤害+30% 弹速-15%',
-        base: { dmgMul: 1.3, bulletSpeedMul: 0.85 } },
-      fast_ammo: { id: 'fast_ammo', slot: 'ammo', name: '高速弹', rarity: 2, color: '#4dc9ff', desc: '弹速+60%',
-        base: { bulletSpeedMul: 1.6 } },
-      double_ammo: { id: 'double_ammo', slot: 'ammo', name: '双发弹', rarity: 1, color: '#7ef29a', desc: '双弹齐射',
-        base: { pellet: 2 } },
-      flame_ammo: { id: 'flame_ammo', slot: 'ammo', name: '燃烧弹', rarity: 3, color: '#ff9f43', desc: '命中燃烧 8x2.5s',
-        base: { burnDps: 8, burnT: 2.5 } },
-      frost_ammo: { id: 'frost_ammo', slot: 'ammo', name: '冰霜弹', rarity: 3, color: '#4dc9ff', desc: '命中减速 45%',
-        base: { slowPct: 0.45, slowT: 2 } },
-      ricochet_ammo: { id: 'ricochet_ammo', slot: 'ammo', name: '跳弹', rarity: 1, color: '#cfd8ff', desc: '穿透+1 弹速+10%',
-        base: { pierce: 1, bulletSpeedMul: 1.1 } },
-      nova_ammo: { id: 'nova_ammo', slot: 'ammo', name: '新星弹', rarity: 2, color: '#b06cff', desc: '小型爆炸',
-        base: { explosionRadius: 70 } },
-      seeker_ammo: { id: 'seeker_ammo', slot: 'ammo', name: '制导弹', rarity: 4, color: '#35e0ff', desc: '自动追踪',
-        base: { homing: true, bulletSpeedMul: 0.85 } },
-      volt_ammo: { id: 'volt_ammo', slot: 'ammo', name: '高压弹', rarity: 4, color: '#ffd166', desc: '三连电链',
-        base: { chain: 3 } }
+      tracer_ammo: { id: 'tracer_ammo', slot: 'ammo', name: '曳光弹', rarity: 1, color: '#7ef29a', desc: '暴击倾向',
+        base: { critChance: 0.08, dmgMul: 1.08 } },
+      ricochet_ammo: { id: 'ricochet_ammo', slot: 'ammo', name: '跳弹', rarity: 2, color: '#4dc9ff', desc: '墙面反弹一次',
+        base: { bounce: 1, dmgMul: 1.1 } },
+      vampire_ammo: { id: 'vampire_ammo', slot: 'ammo', name: '吸血弹', rarity: 3, color: '#b06cff', desc: '命中吸血',
+        base: { lifestealOnHit: 1.5, dmgMul: 0.85 } },
+      shieldbreak_ammo: { id: 'shieldbreak_ammo', slot: 'ammo', name: '破盾弹', rarity: 2, color: '#4dc9ff', desc: '对护盾特攻',
+        base: { shieldDmg: 2, dmgMul: 0.9 } },
+      flashfreeze_ammo: { id: 'flashfreeze_ammo', slot: 'ammo', name: '骤冻弹', rarity: 1, color: '#7ef29a', desc: '命中定身0.4s',
+        base: { frozenT: 0.4, dmgMul: 0.8 } },
+      napalm_ammo: { id: 'napalm_ammo', slot: 'ammo', name: '燃烧弹', rarity: 3, color: '#b06cff', desc: '命中生成燃烧区域',
+        base: { fireZone: true, dmgMul: 0.9 } },
+      heavy_ammo: { id: 'heavy_ammo', slot: 'ammo', name: '重弹', rarity: 3, color: '#b06cff', desc: '重弹+后坐',
+        base: { dmgMul: 1.35, bulletSpeedMul: 0.8, recoilMul: 1.2 } },
+      fast_ammo: { id: 'fast_ammo', slot: 'ammo', name: '急速弹', rarity: 2, color: '#4dc9ff', desc: '高速穿透',
+        base: { bulletSpeedMul: 1.5, pierce: 1, dmgMul: 0.85 } },
+      splitpierce_ammo: { id: 'splitpierce_ammo', slot: 'ammo', name: '裂甲弹', rarity: 1, color: '#7ef29a', desc: '穿透+分裂组合',
+        base: { pierce: 2, splitCount: 2 } },
+      critpierce_ammo: { id: 'critpierce_ammo', slot: 'ammo', name: '破甲暴击弹', rarity: 4, color: '#ff8f3d', desc: '穿透+暴击组合',
+        base: { pierce: 2, critChance: 0.12 } }
     },
     mod: {
       none_mod: { id: 'none_mod', slot: 'mod', name: '空配件槽', rarity: 0, color: '#888888', desc: '未安装',
@@ -172,26 +172,26 @@ const Game = (() => {
         base: { slowPct: 0.3, slowT: 1.2 } },
       stabilizer_mod: { id: 'stabilizer_mod', slot: 'mod', name: '稳定器', rarity: 0, color: '#cfd8ff', desc: '散布x0.5，换弹-20%',
         base: { spreadMul: 0.5, reloadMul: 0.8 } },
-      lifesteal_mod: { id: 'lifesteal_mod', slot: 'mod', name: '生命偷取', rarity: 3, color: '#ff4d5e', desc: '击杀回复 8 HP',
-        base: { vamp: 8 } },
-      rapid_mod: { id: 'rapid_mod', slot: 'mod', name: '快速换弹', rarity: 1, color: '#7ef29a', desc: '换弹-35%',
-        base: { reloadMul: 0.65 } },
-      bigmag_mod: { id: 'bigmag_mod', slot: 'mod', name: '扩容弹匣', rarity: 1, color: '#4dc9ff', desc: '弹容+12',
-        base: { magAdd: 12 } },
-      sharp_mod: { id: 'sharp_mod', slot: 'mod', name: '锋锐弹头', rarity: 2, color: '#cfd8ff', desc: '穿透+1 伤害+10%',
-        base: { pierce: 1, dmgMul: 1.1 } },
-      heavyhand_mod: { id: 'heavyhand_mod', slot: 'mod', name: '重手', rarity: 2, color: '#ff8f3d', desc: '伤害+25% 射速-15%',
-        base: { dmgMul: 1.25, fireRateMul: 0.85 } },
-      scanner_mod: { id: 'scanner_mod', slot: 'mod', name: '扫描模块', rarity: 3, color: '#b06cff', desc: '暴击率+20%',
-        base: { critChance: 0.2 } },
-      ghost_mod: { id: 'ghost_mod', slot: 'mod', name: '幽灵弹头', rarity: 2, color: '#35e0ff', desc: '散布-50% 弹速+15%',
-        base: { spreadMul: 0.5, bulletSpeedMul: 1.15 } },
-      fiery_mod: { id: 'fiery_mod', slot: 'mod', name: '烈焰核心', rarity: 3, color: '#ff9f43', desc: '命中燃烧 6x2s',
-        base: { burnDps: 6, burnT: 2 } },
-      icy_mod: { id: 'icy_mod', slot: 'mod', name: '寒冰核心', rarity: 3, color: '#4dc9ff', desc: '命中减速 30% 1.6s',
-        base: { slowPct: 0.3, slowT: 1.6 } },
-      venom_mod: { id: 'venom_mod', slot: 'mod', name: '毒液核心', rarity: 4, color: '#7ef29a', desc: '命中中毒 5x3s',
-        base: { burnDps: 5, burnT: 3 } }
+      ammo_refund_mod: { id: 'ammo_refund_mod', slot: 'mod', name: '弹药回收', rarity: 1, color: '#7ef29a', desc: '击杀30%概率回1发',
+        base: { magRefund: 0.3 } },
+      crit_dmg_mod: { id: 'crit_dmg_mod', slot: 'mod', name: '暴击深化', rarity: 3, color: '#b06cff', desc: '暴伤+0.5倍 暴击-5%',
+        base: { critMult: 2.5, critChance: -0.05 } },
+      execute_mod: { id: 'execute_mod', slot: 'mod', name: '处决', rarity: 3, color: '#b06cff', desc: '15%血以下伤害×1.5',
+        base: { execute: 1.5 } },
+      empower_mod: { id: 'empower_mod', slot: 'mod', name: '第四发强化', rarity: 2, color: '#4dc9ff', desc: '每第4发伤害×2',
+        base: { empower: true } },
+      thorns_mod: { id: 'thorns_mod', slot: 'mod', name: '荆棘', rarity: 3, color: '#b06cff', desc: '受击20%反弹给最近敌人',
+        base: { thorns: 0.2 } },
+      haste_mod: { id: 'haste_mod', slot: 'mod', name: '迅捷', rarity: 2, color: '#4dc9ff', desc: '移速+10% 换弹-15%',
+        base: { speedMul: 1.1, reloadMul: 0.85 } },
+      steady_mod: { id: 'steady_mod', slot: 'mod', name: '稳态', rarity: 0, color: '#cfd8d8', desc: '散布-35% 换弹+10%',
+        base: { spreadMul: 0.65, reloadMul: 1.1 } },
+      ammo_belt_mod: { id: 'ammo_belt_mod', slot: 'mod', name: '弹药带', rarity: 1, color: '#7ef29a', desc: '弹容+8 换弹-10%',
+        base: { magAdd: 8, reloadMul: 0.9 } },
+      rapid_fire_mod: { id: 'rapid_fire_mod', slot: 'mod', name: '狂热', rarity: 1, color: '#7ef29a', desc: '射速+15% 伤害-10%',
+        base: { fireRateMul: 1.15, dmgMul: 0.9 } },
+      pierce_layer_mod: { id: 'pierce_layer_mod', slot: 'mod', name: '穿甲层', rarity: 2, color: '#4dc9ff', desc: '穿透+2 伤害-15%',
+        base: { pierce: 2, dmgMul: 0.85 } }
     },
     armor: {
       light_armor: { id: 'light_armor', slot: 'armor', name: '轻型护甲', rarity: 0, color: '#7ef29a', desc: '护甲+25，移速+8%',
@@ -204,26 +204,26 @@ const Game = (() => {
         base: { armor: 40, regenMul: 2 } },
       regen_armor: { id: 'regen_armor', slot: 'armor', name: '再生护甲', rarity: 4, color: '#ff4d5e', desc: '护甲+60，每秒回1HP',
         base: { armor: 60, hpRegen: 1 } },
-      scout_armor: { id: 'scout_armor', slot: 'armor', name: '侦察甲', rarity: 0, color: '#7ef29a', desc: '护甲+30，移速+15%',
-        base: { armor: 30, speedMul: 1.15 } },
-      plated_armor: { id: 'plated_armor', slot: 'armor', name: '复合甲', rarity: 1, color: '#35e0ff', desc: '护甲+70，击退-40%',
-        base: { armor: 70, kbMul: 0.6 } },
-      abyss_armor: { id: 'abyss_armor', slot: 'armor', name: '深渊甲', rarity: 2, color: '#b06cff', desc: '护甲+90，受伤-8%',
-        base: { armor: 90, dmgMul: 0.92 } },
-      solar_armor: { id: 'solar_armor', slot: 'armor', name: '日耀甲', rarity: 3, color: '#ff8f3d', desc: '护甲+45，每秒回0.8HP',
-        base: { armor: 45, hpRegen: 0.8 } },
-      lunar_armor: { id: 'lunar_armor', slot: 'armor', name: '月影甲', rarity: 3, color: '#cfd8ff', desc: '护甲+35，移速+10% 受伤-3%',
-        base: { armor: 35, speedMul: 1.1, dmgMul: 0.97 } },
-      fortress_armor: { id: 'fortress_armor', slot: 'armor', name: '要塞甲', rarity: 4, color: '#ffd166', desc: '护甲+100，移速-8% 击退-60%',
-        base: { armor: 100, speedMul: 0.92, kbMul: 0.4 } },
-      spark_armor: { id: 'spark_armor', slot: 'armor', name: '电涌甲', rarity: 2, color: '#35e0ff', desc: '护甲+40，恢复×1.6',
-        base: { armor: 40, regenMul: 1.6 } },
-      thorn_armor: { id: 'thorn_armor', slot: 'armor', name: '荆棘甲', rarity: 1, color: '#7ef29a', desc: '护甲+50，受伤-5%',
-        base: { armor: 50, dmgMul: 0.95 } },
-      zero_armor: { id: 'zero_armor', slot: 'armor', name: '零重力甲', rarity: 4, color: '#4dc9ff', desc: '护甲+25，移速+25%',
-        base: { armor: 25, speedMul: 1.25 } },
-      guardian_armor: { id: 'guardian_armor', slot: 'armor', name: '守护甲', rarity: 2, color: '#b06cff', desc: '护甲+65，每秒回0.5HP 击退-30%',
-        base: { armor: 65, hpRegen: 0.5, kbMul: 0.7 } }
+      absorb_armor: { id: 'absorb_armor', slot: 'armor', name: '吸能甲', rarity: 2, color: '#4dc9ff', desc: '35甲，击杀护甲上限+1（至多+20）',
+        base: { armor: 35, killGrowth: 1 } },
+      crystal_armor: { id: 'crystal_armor', slot: 'armor', name: '晶甲', rarity: 3, color: '#b06cff', desc: '40甲，受伤-12%',
+        base: { armor: 40, dmgMul: 0.88 } },
+      mirage_armor: { id: 'mirage_armor', slot: 'armor', name: '幻影甲', rarity: 4, color: '#ff8f3d', desc: '25甲，移速+22% 受伤-6%',
+        base: { armor: 25, speedMul: 1.22, dmgMul: 0.94 } },
+      parasite_armor: { id: 'parasite_armor', slot: 'armor', name: '寄生甲', rarity: 3, color: '#b06cff', desc: '30甲，击杀回2HP+2甲',
+        base: { armor: 30, killHeal: 2 } },
+      dragon_armor: { id: 'dragon_armor', slot: 'armor', name: '龙鳞甲', rarity: 4, color: '#ff8f3d', desc: '55甲，每秒回0.5HP 燃烧-60%',
+        base: { armor: 55, hpRegen: 0.5, burnDmgMul: 0.4 } },
+      void_armor: { id: 'void_armor', slot: 'armor', name: '虚空甲', rarity: 3, color: '#b06cff', desc: '20甲，18%概率免疫伤害',
+        base: { armor: 20, dodge: 0.18 } },
+      volt_armor: { id: 'volt_armor', slot: 'armor', name: '电涌甲', rarity: 2, color: '#4dc9ff', desc: '40甲，护甲恢复×1.5',
+        base: { armor: 40, regenMul: 1.5 } },
+      titan_armor: { id: 'titan_armor', slot: 'armor', name: '泰坦甲', rarity: 4, color: '#ff8f3d', desc: '120甲，移速-15%',
+        base: { armor: 120, speedMul: 0.85 } },
+      echo_armor: { id: 'echo_armor', slot: 'armor', name: '回响甲', rarity: 2, color: '#4dc9ff', desc: '45甲，受伤后2秒护甲恢复×2',
+        base: { armor: 45, echoSurge: 2 } },
+      swift_armor: { id: 'swift_armor', slot: 'armor', name: '迅捷甲', rarity: 1, color: '#7ef29a', desc: '20甲，移速+15% 瞬身冷却-25%',
+        base: { armor: 20, speedMul: 1.15, dashCdMul: 0.75 } }
     }
   };
 
@@ -332,7 +332,9 @@ const Game = (() => {
       homing: !!a.base.homing,
       explosionRadius: a.base.explosionRadius || 0,
       chain: a.base.chain || 0,
-      burnDps: 0, burnT: 0, slowPct: 0, slowT: 0, vamp: 0
+      burnDps: 0, burnT: 0, slowPct: 0, slowT: 0, vamp: 0,
+      recoilMul: 1, shieldDmg: 1, lifestealOnHit: 0, bounce: 0, frozenT: 0, fireZone: false,
+      magRefund: 0, execute: 1, empower: false, thorns: 0, burst: 1
     };
     if (m.base.critChance) st.critChance += m.base.critChance;
     if (m.base.critMult) st.critMult = m.base.critMult;
@@ -342,6 +344,27 @@ const Game = (() => {
     if (m.base.slowPct) { st.slowPct = m.base.slowPct; st.slowT = m.base.slowT; }
     if (m.base.spreadMul) st.spread *= m.base.spreadMul;
     if (m.base.reloadMul) st.reloadTime *= m.base.reloadMul;
+    if (a.base.dmgMul) st.damage *= a.base.dmgMul;
+    if (m.base.dmgMul) st.damage *= m.base.dmgMul;
+    if (m.base.magAdd) st.magSize += m.base.magAdd;
+    if (m.base.pierce) st.pierce += m.base.pierce;
+    if (m.base.bulletSpeedMul) st.bulletSpeed *= m.base.bulletSpeedMul;
+    if (b.base.critChance) st.critChance += b.base.critChance;
+    if (b.base.burnDps) { st.burnDps = b.base.burnDps; st.burnT = b.base.burnT; }
+    if (b.base.explosionRadius) st.explosionRadius = b.base.explosionRadius;
+    if (b.base.burst) st.burst = b.base.burst;
+    if (b.base.recoilMul) st.recoilMul *= b.base.recoilMul;
+    if (a.base.recoilMul) st.recoilMul *= a.base.recoilMul;
+    if (m.base.recoilMul) st.recoilMul *= m.base.recoilMul;
+    if (a.base.shieldDmg) st.shieldDmg = a.base.shieldDmg;
+    if (a.base.lifestealOnHit) st.lifestealOnHit = a.base.lifestealOnHit;
+    if (a.base.bounce) st.bounce = a.base.bounce;
+    if (a.base.frozenT) st.frozenT = a.base.frozenT;
+    if (a.base.fireZone) st.fireZone = true;
+    if (m.base.magRefund) st.magRefund = m.base.magRefund;
+    if (m.base.execute) st.execute = m.base.execute;
+    if (m.base.empower) st.empower = true;
+    if (m.base.thorns) st.thorns = m.base.thorns;
     if (a.base.dmgMul) st.damage *= a.base.dmgMul;
     if (m.base.dmgMul) st.damage *= m.base.dmgMul;
     if (m.base.magAdd) st.magSize += m.base.magAdd;
@@ -1375,8 +1398,9 @@ const Game = (() => {
         x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
         hp: 100, maxHp: 100, radius: 14, speed: 260,
         aimAngle: 0, invuln: 0, recoil: 0,
-        armor: 0, maxArmor: 0,
-        armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0 }
+        armor: 0, maxArmor: 0, armorCap: 0,
+        armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0,
+          killGrowth: 0, killHeal: 0, dodge: 0, echoSurge: 0, echoSurgeT: 0, burnDmgMul: 1, dashCdMul: 1 }
       },
       guns: [buildGun('pistol_body', 'standard_ammo', 'none_mod'), buildGun('pistol_body', 'standard_ammo', 'none_mod')],
       activeGun: 0,
@@ -1457,7 +1481,8 @@ const Game = (() => {
       const part = world.armor;
       const p = world.player;
       const base = part ? PARTS.armor[part.id].base : null;
-      const spec = { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0 };
+      const spec = { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0,
+        killGrowth: 0, killHeal: 0, dodge: 0, echoSurge: 0, echoSurgeT: 0, burnDmgMul: 1, dashCdMul: 1 };
       let maxArmor = 0;
       if (base) {
         maxArmor = base.armor;
@@ -1466,6 +1491,12 @@ const Game = (() => {
         if (base.kbMul) spec.kbMul = base.kbMul;
         if (base.regenMul) spec.regenMul = base.regenMul;
         if (base.hpRegen) spec.hpRegen = base.hpRegen;
+        if (base.killGrowth) spec.killGrowth = base.killGrowth;
+        if (base.killHeal) spec.killHeal = base.killHeal;
+        if (base.dodge) spec.dodge = base.dodge;
+        if (base.echoSurge) spec.echoSurge = base.echoSurge;
+        if (base.burnDmgMul) spec.burnDmgMul = base.burnDmgMul;
+        if (base.dashCdMul) spec.dashCdMul = base.dashCdMul;
         for (const aff of part.affixes) {
           const v = aff.value !== undefined ? aff.value : aff.flat;
           if (aff.stat === 'armor') maxArmor += v;
@@ -1474,6 +1505,7 @@ const Game = (() => {
         }
       }
       p.maxArmor = Math.max(0, maxArmor);
+      p.armorCap = maxArmor + (base && base.killGrowth ? 20 : 0);
       if (refill) p.armor = p.maxArmor;
       else p.armor = Math.min(p.armor, p.maxArmor);
       p.armorSpec = spec;
@@ -1583,6 +1615,7 @@ const Game = (() => {
         const e = world.enemies[i];
         e.flash -= dt;
         e.hitCd -= dt;
+        if (e.freezeT > 0) { e.freezeT -= dt; continue; }
         if (e.specialNpc && e.renderScale !== undefined && e.renderScale < 1) {
           e.renderScale = Math.min(1, e.renderScale + dt * 1.5);
         }
@@ -2061,7 +2094,7 @@ const Game = (() => {
       if (!e || e.dead) return { died: false, crit: false };
       const o = opts || {};
       if (e.shield > 0) {
-        e.shield -= dmg;
+        e.shield -= dmg * (o.shieldDmg || 1);
         e.shieldDelay = 3;
         e.flash = 0.08;
         fx.sparks(e.x, e.y, '#b06cff', 4);
@@ -2077,7 +2110,8 @@ const Game = (() => {
         return { died: false, crit: false };
       }
       const crit = !!o.critChance && Math.random() < o.critChance;
-      const final = crit ? dmg * (o.critMult || 2) : dmg;
+      const execMul = (o.execute && o.execute > 1 && e.hp <= e.maxHp * 0.15) ? o.execute : 1;
+      const final = (crit ? dmg * (o.critMult || 2) : dmg) * execMul;
       e.hp -= final;
       e.flash = 0.08;
       if (e.kind !== 'boss') {
@@ -2089,6 +2123,8 @@ const Game = (() => {
       fx.floater(e.x, e.y - e.radius - 8, String(Math.round(final)), crit ? 'crit' : 'normal');
       if (o.burnDps) { e.burnDps = o.burnDps; e.burnT = o.burnT; }
       if (o.slowPct) { e.slowPct = o.slowPct; e.slowT = o.slowT; }
+      if (o.frozenT) e.freezeT = o.frozenT;
+      if (o.lifestealOnHit) world.player.hp = Math.min(world.player.maxHp, world.player.hp + o.lifestealOnHit);
       audio.play('hit');
       if (e.hp <= 0) {
         if (o.vamp) world.player.hp = Math.min(world.player.maxHp, world.player.hp + o.vamp);
@@ -2149,12 +2185,30 @@ const Game = (() => {
       updateCombo();
       maybeDrop(e);
       world.dash.cd = 0;
+      {
+        const g = gun();
+        if (g.stats.magRefund && g.mag < g.stats.magSize && Math.random() < g.stats.magRefund) g.mag++;
+        const as = world.player.armorSpec || {};
+        if (as.killGrowth > 0 && world.player.maxArmor < (world.player.armorCap || world.player.maxArmor)) {
+          world.player.maxArmor = Math.min(world.player.armorCap, world.player.maxArmor + 1);
+          world.player.armor = Math.min(world.player.maxArmor, world.player.armor + 1);
+        }
+        if (as.killHeal > 0) {
+          world.player.hp = Math.min(world.player.maxHp, world.player.hp + as.killHeal);
+          world.player.armor = Math.min(world.player.maxArmor, world.player.armor + as.killHeal);
+        }
+      }
       if (e.scale > 1) fx.slowmo(0.3, 0.25);
     }
 
     function damagePlayer(dmg, angle) {
       const p = world.player;
       if (p.invuln > 0) return;
+      const as = p.armorSpec || {};
+      if (as.dodge && Math.random() < as.dodge) {
+        fx.floater(p.x, p.y - 24, '闪避', 'crit');
+        return;
+      }
       let d = dmg;
       if (p.armor > 0) {
         const absorbed = Math.min(p.armor, d);
@@ -2166,6 +2220,19 @@ const Game = (() => {
       d *= (p.armorSpec ? p.armorSpec.dmgMul : 1);
       p.hp -= d;
       p.invuln = 0.4;
+      if (d > 0) {
+        if (as.echoSurge) as.echoSurgeT = 2;
+        const th = gun().stats.thorns || 0;
+        if (th > 0 && world.enemies.length) {
+          let ne = null, nd = 1e9;
+          for (const en of world.enemies) {
+            if (en.dead) continue;
+            const dd = Math.hypot(en.x - p.x, en.y - p.y);
+            if (dd < nd) { nd = dd; ne = en; }
+          }
+          if (ne) damageEnemy(ne, d * th, Math.atan2(ne.y - p.y, ne.x - p.x), {});
+        }
+      }
       const kbMul = (p.armorSpec ? p.armorSpec.kbMul : 1);
       p.vx += Math.cos(angle) * 300 * kbMul;
       p.vy += Math.sin(angle) * 300 * kbMul;
@@ -2185,9 +2252,11 @@ const Game = (() => {
       }
     }
 
-    function applyRawDamage(dmg) {
+    function applyRawDamage(dmg, isBurn) {
       const p = world.player;
       let d = dmg;
+      const as = p.armorSpec || {};
+      if (isBurn && as.burnDmgMul) d *= as.burnDmgMul;
       if (p.armor > 0) {
         const absorbed = Math.min(p.armor, d);
         p.armor -= absorbed;
@@ -2206,6 +2275,10 @@ const Game = (() => {
       world.poisonZones.push({ x, y, r, life: 4.5, maxLife: 4.5, dps: 7 });
     }
 
+    function spawnFlameZone(x, y, r) {
+      world.poisonZones.push({ x, y, r: r || 55, life: 4, maxLife: 4, dps: 6, flame: true });
+    }
+
     function updatePoisonZones(dt) {
       const p = world.player;
       for (let i = world.poisonZones.length - 1; i >= 0; i--) {
@@ -2213,7 +2286,7 @@ const Game = (() => {
         z.life -= dt;
         if (z.life <= 0) { utils.swapRemove(world.poisonZones, i); continue; }
         if (Math.hypot(p.x - z.x, p.y - z.y) < z.r) {
-          applyRawDamage(z.dps * dt);
+          applyRawDamage(z.dps * dt, !!z.flame);
           if (Math.random() < dt * 8) {
             fx.spawn({
               kind: 'spark', x: p.x + utils.rand(-12, 12), y: p.y + utils.rand(-12, 12),
@@ -2276,8 +2349,9 @@ const Game = (() => {
         x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
         hp: 100, maxHp: 100, radius: 14, speed: 260,
         aimAngle: 0, invuln: 0, recoil: 0,
-        armor: 0, maxArmor: 0,
-        armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0 }
+        armor: 0, maxArmor: 0, armorCap: 0,
+        armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0,
+          killGrowth: 0, killHeal: 0, dodge: 0, echoSurge: 0, echoSurgeT: 0, burnDmgMul: 1, dashCdMul: 1 }
       };
       world.guns = [buildGun('pistol_body', 'standard_ammo', 'none_mod'), buildGun('pistol_body', 'standard_ammo', 'none_mod')];
       world.activeGun = 0;
@@ -2825,7 +2899,7 @@ const Game = (() => {
         dash.angle = Math.atan2(myw - p.y, mxw - p.x);
         dash.active = true;
         dash.t = 0.13;
-        dash.cd = 3;
+        dash.cd = 3 * ((p.armorSpec && p.armorSpec.dashCdMul) || 1);
         p.invuln = 0.25;
         audio.play('dash');
       }
@@ -2891,10 +2965,14 @@ const Game = (() => {
       if (p.maxArmor > 0) {
         const as = p.armorSpec || {};
         if (as.hpRegen) p.hp = Math.min(p.maxHp, p.hp + as.hpRegen * dt);
+        let rm = as.regenMul || 1;
+        if (as.echoSurge) {
+          if (as.echoSurgeT > 0) { as.echoSurgeT -= dt; rm *= 2; }
+        }
         world.armorTick += dt;
         if (world.armorTick >= 2.4999) { // 回复频率降低150%（间隔×2.5）
           world.armorTick -= 2.5;
-          const amount = (6 * (as.regenMul || 1) + (as.regenFlat || 0)) * 2.5 * 0.6; // 每次回复值 -40%
+          const amount = (6 * rm + (as.regenFlat || 0)) * 2.5 * 0.6; // 每次回复值 -40%
           p.armor = Math.min(p.maxArmor, p.armor + amount);
         }
       }
@@ -2946,15 +3024,24 @@ const Game = (() => {
       const muzzleX = p.x + Math.cos(p.aimAngle) * 22;
       const muzzleY = p.y + Math.sin(p.aimAngle) * 22;
       const baseAngle = p.aimAngle + (Math.random() - 0.5) * 2 * st.spread;
+      let shotDmg = st.damage;
+      if (st.empower) {
+        world.shotCounter = (world.shotCounter || 0) + 1;
+        if (world.shotCounter % 4 === 0) shotDmg *= 2;
+      }
+      const burst = st.burst || 1;
+      for (let bi = 0; bi < burst; bi++) {
       for (let i = 0; i < st.pellet; i++) {
-        const a = baseAngle + (i - (st.pellet - 1) / 2) * 0.04;
+        const a = baseAngle + (i - (st.pellet - 1) / 2) * 0.04 + (bi - (burst - 1) / 2) * 0.02;
+        const bx = muzzleX + Math.cos(p.aimAngle) * bi * 9;
+        const by = muzzleY + Math.sin(p.aimAngle) * bi * 9;
         world.bullets.push({
-          x: muzzleX, y: muzzleY,
-          px: muzzleX, py: muzzleY,
+          x: bx, y: by,
+          px: bx, py: by,
           vx: Math.cos(a) * st.bulletSpeed,
           vy: Math.sin(a) * st.bulletSpeed,
           speed: st.bulletSpeed,
-          damage: st.damage,
+          damage: shotDmg,
           pierce: st.pierce,
           friendly: true,
           life: 1.2 * ((PARTS.body[g.parts.body.id].base.lifeMul) || 1),
@@ -2969,9 +3056,14 @@ const Game = (() => {
             critChance: st.critChance, critMult: st.critMult,
             burnDps: st.burnDps, burnT: st.burnT,
             slowPct: st.slowPct, slowT: st.slowT,
-            vamp: st.vamp
-          }
+            vamp: st.vamp,
+            shieldDmg: st.shieldDmg, lifestealOnHit: st.lifestealOnHit,
+            frozenT: st.frozenT
+          },
+          bounce: st.bounce || 0,
+          fireZone: !!st.fireZone
         });
+      }
       }
       fx.muzzle(muzzleX, muzzleY, p.aimAngle, '#ffd166');
       fx.casing(p.x, p.y, p.aimAngle);
@@ -2982,7 +3074,7 @@ const Game = (() => {
         y1: muzzleY + Math.sin(p.aimAngle) * 46,
         life: 0.09, color: '#ffd166'
       });
-      p.recoil = Math.min(1, p.recoil + (GUN_RECOIL[g.parts.body.id] || 0.35));
+      p.recoil = Math.min(1, p.recoil + (GUN_RECOIL[g.parts.body.id] || 0.35) * (st.recoilMul || 1));
       audio.play(GUN_SOUNDS[g.parts.body.id] || 'pistol');
     }
 
@@ -3049,8 +3141,21 @@ const Game = (() => {
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
-        if (b.life <= 0 || b.x < r.x - 40 || b.x > r.w + 40 || b.y < r.y - 40 || b.y > r.h + 40) {
+        if (b.life <= 0) {
           if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
+          if (b.fireZone) spawnFlameZone(b.x, b.y);
+          utils.swapRemove(world.bullets, i);
+          continue;
+        }
+        if (b.friendly && b.bounce > 0) {
+          let bounced = false;
+          if (b.x < r.x + 6 || b.x > r.w - 6) { b.vx *= -1; bounced = true; }
+          if (b.y < r.y + 6 || b.y > r.h - 6) { b.vy *= -1; bounced = true; }
+          if (bounced) b.bounce--;
+        }
+        if (b.x < r.x - 40 || b.x > r.w + 40 || b.y < r.y - 40 || b.y > r.h + 40) {
+          if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
+          if (b.fireZone) spawnFlameZone(b.x, b.y);
           utils.swapRemove(world.bullets, i);
           continue;
         }
@@ -3065,8 +3170,17 @@ const Game = (() => {
           }
         }
         if (hitObs) {
-          if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
-          utils.swapRemove(world.bullets, i);
+          if (b.friendly && b.bounce > 0) {
+            b.bounce--;
+            b.vx = -b.vx;
+            b.vy = -b.vy;
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+          } else {
+            if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
+            if (b.fireZone) spawnFlameZone(b.x, b.y);
+            utils.swapRemove(world.bullets, i);
+          }
           continue;
         }
         if (b.friendly) {
@@ -3129,6 +3243,7 @@ const Game = (() => {
               if (b.pierce > 0) {
                 b.pierce--;
               } else {
+                if (b.fireZone) spawnFlameZone(b.x, b.y);
                 utils.swapRemove(world.bullets, i);
               }
               break;
@@ -3138,6 +3253,7 @@ const Game = (() => {
           if (Math.hypot(p.x - b.x, p.y - b.y) < p.radius + b.size) {
             damagePlayer(b.damage, Math.atan2(b.vy, b.vx));
             if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
+            if (b.fireZone) spawnFlameZone(b.x, b.y);
             utils.swapRemove(world.bullets, i);
           }
         }
@@ -4193,6 +4309,13 @@ const Game = (() => {
             ctx.fillRect(bx, by - 6, bw * sfrac, 3);
           }
         }
+        if (e.freezeT > 0) {
+          ctx.strokeStyle = 'rgba(120, 220, 255, 0.85)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.radius + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         drawFacingMark(e, e.radius);
         ctx.restore();
       }
@@ -4708,13 +4831,14 @@ const Game = (() => {
     function drawPoisonZones() {
       for (const z of world.poisonZones) {
         const a = utils.clamp(z.life / z.maxLife, 0, 1);
+        const zc = z.flame ? '#ff8f3d' : '#7ef29a';
         ctx.globalAlpha = a * 0.35;
-        ctx.fillStyle = '#7ef29a';
+        ctx.fillStyle = zc;
         ctx.beginPath();
         ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = a * 0.5;
-        ctx.strokeStyle = '#7ef29a';
+        ctx.strokeStyle = zc;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(z.x, z.y, z.r * (0.8 + 0.2 * Math.sin(world.time * 3 + z.x)), 0, Math.PI * 2);

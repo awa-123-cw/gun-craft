@@ -873,7 +873,9 @@ test('进入敌人房间 1.5 秒警觉期敌人不行动', () => {
   game.startMap(999);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
-  const e = game.world.enemies[0];
+  game.world.enemies.length = 0;
+  const e = game.spawnEnemy('chaser', 300, 300, 1);
+  game.world.enemies.push(e);
   const sx = e.x, sy = e.y;
   for (let i = 0; i < 144; i++) game.update(1 / 120); // 1.2s
   assert.ok(Math.hypot(e.x - sx, e.y - sy) < 1, '警觉期内敌人不应移动');
@@ -1025,6 +1027,7 @@ test('手机端辅助自动瞄准吸附最近敌人', () => {
   game.input.touch.firing = true;
   game.input.touch.aimId = 99;
   game.input.touch.aimPos = { x: 1000, y: 300 }; // 大致向右
+  game.gun().mag = 0; // 只测瞄准，避免把目标打死
   game.world.player.x = 750;
   game.world.player.y = 550;
   const e = game.spawnEnemy('shooter', 900, 600, 1);
@@ -1285,4 +1288,92 @@ test('清房后播放胜利音效', () => {
   const st = game.musicStatus();
   assert.strictEqual(st.state, 'stopped', '清房后应停止战斗音乐');
   assert.ok(!st.song, '清房后不应有进行中的曲目');
+});
+
+test('新机制：三连发枪身一次触发3颗子弹', () => {
+  const { game, Game } = makeGame();
+  game.world.guns[0].parts.body = { id: 'burst3_body', slot: 'body', name: '三点火枪身', rarity: 1, color: '#7ef29a', affixes: [] };
+  game.rebuildGun(0);
+  game.input.mouseHard = true;
+  game.update(1 / 60);
+  assert.strictEqual(game.world.bullets.length, 3, '三连发应一次射3颗');
+});
+test('新机制：跳弹在墙边反弹不消失', () => {
+  const { game } = makeGame();
+  game.world.bullets.push({ x: 8, y: 100, px: 8, py: 100, vx: -500, vy: 0, damage: 1, friendly: true, life: 5, size: 3, bounce: 1, fireZone: false, kind: 'standard' });
+  game.update(1 / 120);
+  assert.ok(game.world.bullets.some(b => b.vx > 0), '撞墙后应反弹向右');
+});
+test('新机制：破盾弹对护盾伤害翻倍', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('elite', 100, 100, 1);
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 10, 0, { shieldDmg: 2 });
+  assert.strictEqual(e.shield, e.maxShield - 20, '护盾应扣 20');
+});
+test('新机制：骤冻弹定身敌人', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  game.world.player.x = 200; game.world.player.y = 100;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 5, 0, { frozenT: 0.4 });
+  assert.ok(e.freezeT > 0, '应被冻结');
+  const sx = e.x;
+  for (let i = 0; i < 30; i++) game.update(1 / 120);
+  assert.ok(Math.abs(e.x - sx) < 1, '冻结期间不应移动');
+});
+test('新机制：燃烧弹命中生成火焰区域', () => {
+  const { game } = makeGame();
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 5, 0, {});
+  game.world.bullets.push({ x: e.x, y: e.y, vx: 0, vy: 0, damage: 1, friendly: true, life: 0, size: 3, fireZone: true, kind: 'standard' });
+  game.update(1 / 120);
+  assert.ok(game.world.poisonZones.some(z => z.flame), '应生成火焰区域');
+});
+test('新机制：弹药回收击杀返还子弹', () => {
+  const { game } = makeGame();
+  const orig = Math.random;
+  try {
+    Math.random = () => 0.01;
+    game.world.guns[0].parts.mod = { id: 'ammo_refund_mod', slot: 'mod', name: '弹药回收', rarity: 1, color: '#7ef29a', affixes: [] };
+    game.rebuildGun(0);
+    const g = game.gun();
+    g.mag = 5;
+    const e = game.spawnEnemy('chaser', 100, 100, 1);
+    e.hp = 1;
+    game.world.enemies.push(e);
+    game.damageEnemy(e, 5, 0, {});
+    assert.strictEqual(g.mag, 6, '击杀应返还1发');
+  } finally { Math.random = orig; }
+});
+test('新机制：虚空甲概率闪避', () => {
+  const { game } = makeGame();
+  const orig = Math.random;
+  try {
+    Math.random = () => 0.01;
+    game.equipPart({ id: 'void_armor', slot: 'armor', name: '虚空甲', rarity: 3, color: '#b06cff', affixes: [] });
+    game.world.player.hp = 100;
+    game.world.player.armor = 0;
+    game.damagePlayer(50, 0);
+    assert.strictEqual(game.world.player.hp, 100, '应闪避掉伤害');
+  } finally { Math.random = orig; }
+});
+test('新机制：迅捷甲缩短瞬身冷却', () => {
+  const { game } = makeGame();
+  game.equipPart({ id: 'swift_armor', slot: 'armor', name: '迅捷甲', rarity: 1, color: '#7ef29a', affixes: [] });
+  game.setScreen('playing');
+  game.input.dashTap = true;
+  game.update(1 / 120);
+  assert.ok(Math.abs(game.world.dash.cd - 2.25) < 0.01, '瞬身冷却应为 2.25s');
+});
+test('新机制：吸能甲击杀提升护甲上限', () => {
+  const { game } = makeGame();
+  game.equipPart({ id: 'absorb_armor', slot: 'armor', name: '吸能甲', rarity: 2, color: '#4dc9ff', affixes: [] });
+  const before = game.world.player.maxArmor;
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  e.hp = 1;
+  game.world.enemies.push(e);
+  game.damageEnemy(e, 5, 0, {});
+  assert.strictEqual(game.world.player.maxArmor, before + 1, '击杀后护甲上限应+1');
 });
