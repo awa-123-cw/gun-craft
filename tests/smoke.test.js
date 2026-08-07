@@ -1848,8 +1848,8 @@ test('DualSense: 扳机效果块编码正确', () => {
   assert.deepStrictEqual(fb.slice(3, 7), [0, 0, 0, 0]);
   const wb = Array.from(blk.weaponBlock(3, 7, 3));
   assert.strictEqual(wb[0], 0x25);
-  assert.strictEqual(wb[1], 0x08);
-  assert.strictEqual(wb[2], 0x80);
+  assert.strictEqual(wb[1], 136, 'start(3)+end(7) 合成掩码 0x88');
+  assert.strictEqual(wb[2], 0);
   assert.strictEqual(wb[3], 2);
   const vb = Array.from(blk.vibrationBlock(2, 4, 28));
   assert.strictEqual(vb[0], 0x26);
@@ -2018,21 +2018,28 @@ test('DualSense: Windows 拒绝超长 USB 报告时自动切换蓝牙且 payload
   assert.strictEqual(crc(b2), 0x56e95794 >>> 0, 'CRC 向量2');
 });
 
-test('DualSense: 标准枪身/冲锋枪身默认阻力明显可感知', () => {
+test('DualSense: 默认扳机阻力起点提前且段落感清晰', () => {
   const { game } = makeGame();
   const pistol = Array.from(game.TRIGGER_FEEL.pistol_body.rest(0.6));
   const smg = Array.from(game.TRIGGER_FEEL.smg_body.rest(0.6, false));
+  const shotgun = Array.from(game.TRIGGER_FEEL.shotgun_body.rest(0.6));
+  const sniper = Array.from(game.TRIGGER_FEEL.sniper_body.rest(0.6));
   // 10 区活动位图 + 3bit/区力度（uint32 跨字节），参考 dualsense-ts 编码
-  assert.deepStrictEqual(pistol, [0x21, 240, 3, 0, 64, 146, 36, 0, 0, 0, 0], '标准枪身 feedback(4,5)');
-  assert.deepStrictEqual(smg, [0x21, 248, 3, 0, 182, 109, 27, 0, 0, 0, 0], '冲锋枪身 feedback(3,4)');
+  assert.deepStrictEqual(pistol, [0x21, 252, 3, 0, 73, 146, 36, 0, 0, 0, 0], '标准枪身 feedback(2,5) 起点区2');
+  assert.deepStrictEqual(smg, [0x21, 252, 3, 192, 182, 109, 27, 0, 0, 0, 0], '冲锋枪身 feedback(2,4) 起点区2');
+  assert.deepStrictEqual(shotgun, [37, 132, 0, 7, 0, 0, 0, 0, 0, 0, 0], '霰弹枪身 weapon(2,7,8) 强力段落');
+  assert.deepStrictEqual(sniper, [0x21, 252, 3, 192, 255, 255, 63, 0, 0, 0, 0], '狙击二段重段 feedback(2,8)');
 });
 
 
 test('手柄背包面板：方键丢弃选中部件（叉键装备不变）', () => {
   const { game, Game } = makeGame();
   game.setScreen('playing');
-  let part = Game.partsEngine.rollPart();
-  while (part.slot !== 'body' && part.slot !== 'ammo') part = Game.partsEngine.rollPart(); // 枪身/弹药槽必有已装备件（none_mod 不算）
+  const g0 = game.gun();
+  let part;
+  do {
+    part = Game.partsEngine.rollPart();
+  } while (part.slot === 'armor' || part.slot === 'mod' || part.id === g0.parts[part.slot].id); // 排除已装备同 id（denied）
   const keep = Game.partsEngine.rollPart();
   game.world.inventory.push(part, keep);
   game.openPanel('parts');

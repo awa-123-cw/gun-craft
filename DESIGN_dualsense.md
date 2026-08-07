@@ -136,21 +136,21 @@ block[10] = 0
 ### 6.3 15 种枪身 R2 手感表
 | 枪身 | 常驻扳机（R2） | 开火反馈 | 开火马达 | 手感关键词 |
 |---|---|---|---|---|
-| 标准枪身 | Feedback pos4 str5 | Feedback pos4 str5，短 | A0.30 B0.15 80ms | 干脆轻快 |
-| 冲锋枪身 | Feedback pos3 str4；开火时 Vibration pos3 amp3 freq35 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
-| 霰弹枪身 | Weapon 2→8 str4 | Feedback pos2 str8 | A0.85 B0.70 350ms | 沉重后坐 |
-| 狙击枪身 | 二段：pull<50% Feedback pos2 str2；≥50% Feedback pos5 str7 | Feedback pos1 str8 | A0.90 B0.75 450ms | 精密二段 |
-| 重型枪身 | Feedback pos2 str5 | 双脉冲 Feedback pos3 str6（90ms 间隔） | A0.60 B0.50 250ms | 厚重压制 |
-| 三点火枪身 | Feedback pos4 str2 | 三连脉冲 Feedback pos4 str4（60ms 间隔） | A0.35×3 各 50ms | 三连节拍 |
-| 左轮枪身 | Feedback pos5 str4 | Feedback pos4 str6 短 | A0.60 B0.40 130ms；暴击×1.5 | 硬朗重扣 |
-| 高斯枪身 | 动态蓄力：Feedback pos1 str2 → pos3 str5 → pos5 str8（随 pull 增强） | Vibration pos2 amp5 freq60 短 | A0.90 B0.80 400ms | 蓄能释放 |
-| 齐射枪身 | Weapon 4→7 str3 | Feedback pos3 str7 | A0.70 B0.60 300ms | 齐射轰鸣 |
-| 加特林枪身 | Vibration pos2 amp4 freq28（持续） | 持续扳机振动 | A0.20 B0.50 交替持续 | 转管咆哮 |
-| 二连冲枪身 | Feedback pos3 str2 | 双脉冲 Feedback pos4 str4（70ms 间隔） | A0.30×2 各 60ms | 双连点射 |
-| 手炮枪身 | Feedback pos4 str6 | Feedback pos2 str8 + Vibration amp4 freq20 300ms | A0.90 B0.85 500ms | 重炮轰鸣 |
-| 等离子枪身 | Vibration pos2 amp2 freq18（能量嗡嗡） | Vibration amp4 freq30 短 | A0.40 B0.30 150ms | 能量束 |
-| 泵动枪身 | Feedback pos5 str3 | Feedback pos5 str5 快；上膛时 Weapon 3→6 str4 | A0.50 B0.35 120ms | 泵动机械感 |
-| 钻头枪身 | Vibration pos2 amp3 freq24（钻头振动） | 持续中频；穿透命中加强脉冲 | A0.45 B0.40 持续 | 钻头撕扯 |
+| 标准枪身 | Feedback pos2 str5 | Feedback pos2 str7，短 | A0.30 B0.15 80ms | 干脆轻快 |
+| 冲锋枪身 | Feedback pos2 str4；开火时 Vibration pos2 amp4 freq38 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
+| 霰弹枪身 | Weapon 2→7 str8 | Feedback pos2 str8 | A0.85 B0.70 350ms | 沉重后坐 |
+| 狙击枪身 | 二段：pull<45% Feedback pos1 str3；≥45% Feedback pos2 str8 | Feedback pos1 str8 | A0.90 B0.75 450ms | 精密二段 |
+| 重型枪身 | Feedback pos1 str6 | 双脉冲 Feedback pos2 str7（90ms 间隔） | A0.60 B0.50 250ms | 厚重压制 |
+| 三点火枪身 | Feedback pos2 str6 | 三连脉冲 Feedback pos2 str6（60ms 间隔） | A0.35×3 各 50ms | 三连节拍 |
+| 左轮枪身 | Feedback pos2 str7 | Feedback pos2 str8 短 | A0.60 B0.40 130ms；暴击×1.5 | 硬朗重扣 |
+| 高斯枪身 | 动态蓄力：Feedback pos0 str3 → pos3 str6 → pos4 str8（随 pull 增强） | Vibration pos2 amp5 freq60 短 | A0.90 B0.80 400ms | 蓄能释放 |
+| 齐射枪身 | Weapon 2→6 str7 | Feedback pos2 str8 | A0.70 B0.60 300ms | 齐射轰鸣 |
+| 加特林枪身 | Feedback pos1 str4；开火时 Vibration pos2 amp5 freq30 | 持续扳机振动 | A0.20 B0.50 交替持续 | 转管咆哮 |
+| 二连冲枪身 | Feedback pos2 str3 | 双脉冲 Feedback pos2 str5（70ms 间隔） | A0.30×2 各 60ms | 双连点射 |
+| 手炮枪身 | Feedback pos1 str8 | Feedback pos2 str8 + Vibration amp4 freq20 300ms | A0.90 B0.85 500ms | 重炮轰鸣 |
+| 等离子枪身 | Vibration pos1 amp3 freq20（能量嗡嗡） | Vibration amp4 freq30 短 | A0.40 B0.30 150ms | 能量束 |
+| 泵动枪身 | Feedback pos1 str5 | Feedback pos2 str6 快；上膛时 Weapon 2→6 str7 | A0.50 B0.35 120ms | 泵动机械感 |
+| 钻头枪身 | Vibration pos1 amp3 freq22；开火时 pos2 amp4 freq26 | 持续中频；穿透命中加强脉冲 | A0.45 B0.40 持续 | 钻头撕扯 |
 
 **L2（可选增强，建议实现）**：长按 L2 = 慢动作瞄准（与空格一致的新手柄映射）；按住时 L2 阻力 Feedback pos4 str2 轻柔阻尼。若实现中发现与现有操作冲突，回退为仅保留阻力反馈。
 
@@ -219,3 +219,8 @@ block[10] = 0
 - 手柄设置面板新增"扳机自检"：依次发送 阻力(feedback 0/8) → 段落(weapon 2-8/8) → 扳机振动(vibration 0/8/30Hz)，各 1.2s，可直接验证硬件链路。
 - 降级诊断：WebHID 通道若写入失败，面板显示具体降级原因（USB/蓝牙初始报告或写入失败信息）。
 - 默认手感强化：标准枪身 Feedback 4/3→4/5、冲锋 3/3→3/4、霰弹 Weapon 3→7/3→2→8/4，确保首次上手即可明确感知阻力和段落。
+
+## 十四、实机修复记录 v1.3（2026-08-08）
+- 阻力起点整体提前：多数枪由区 3~5（30%~50%）提前到区 1~2（10%~20%），其中手炮/泵动/重型 10% 起阻，狙击第一段 10% 起、二段 20% 强力（str8）。
+- 段落感强化：霰弹 Weapon 2→7 str8、齐射 Weapon 2→6 str7（强力双段+释放回弹），高斯三段阶梯更分明（0/3/6 → 3/6/8），开火脉冲同步加重（标准 2/7、左轮 2/8、重型双段 2/7 等）。
+- 修复 weaponBlock 官方编码：start/end 位需合成一个 16 位掩码再拆高低字节；原实现把 end 位单独放进高字节，导致段落结束点被固件读成 zone 8（段落感错位/偏弱）。
