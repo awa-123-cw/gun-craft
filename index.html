@@ -5750,10 +5750,18 @@ const Game = (() => {
       b[0] = 0x21;
       position = Math.max(0, Math.min(9, position | 0));
       strength = Math.max(1, Math.min(8, strength | 0));
+      const forceValue = (strength - 1) & 0x07;
+      let forceZones = 0, activeZones = 0;
       for (let i = position; i <= 9; i++) {
-        b[1 + (i >> 3)] |= 1 << (i & 7);
-        b[3 + (i >> 2)] |= ((strength - 1) & 7) << (3 * (i & 3));
+        forceZones |= forceValue << (3 * i); // 3bit/区，uint32 累加可跨字节
+        activeZones |= 1 << i;
       }
+      b[1] = activeZones & 0xff;
+      b[2] = (activeZones >> 8) & 0xff;
+      b[3] = forceZones & 0xff;
+      b[4] = (forceZones >> 8) & 0xff;
+      b[5] = (forceZones >> 16) & 0xff;
+      b[6] = (forceZones >> 24) & 0xff;
       return b;
     }
     function weaponBlock(start, end, strength) {
@@ -5771,10 +5779,18 @@ const Game = (() => {
       b[0] = 0x26;
       position = Math.max(0, Math.min(9, position | 0));
       amplitude = Math.max(1, Math.min(8, amplitude | 0));
+      const ampValue = (amplitude - 1) & 0x07;
+      let ampZones = 0, activeZones = 0;
       for (let i = position; i <= 9; i++) {
-        b[1 + (i >> 3)] |= 1 << (i & 7);
-        b[3 + (i >> 2)] |= ((amplitude - 1) & 7) << (3 * (i & 3));
+        ampZones |= ampValue << (3 * i); // 3bit/区，uint32 累加可跨字节
+        activeZones |= 1 << i;
       }
+      b[1] = activeZones & 0xff;
+      b[2] = (activeZones >> 8) & 0xff;
+      b[3] = ampZones & 0xff;
+      b[4] = (ampZones >> 8) & 0xff;
+      b[5] = (ampZones >> 16) & 0xff;
+      b[6] = (ampZones >> 24) & 0xff;
       b[9] = Math.max(1, Math.min(255, frequency | 0));
       return b;
     }
@@ -5788,14 +5804,14 @@ const Game = (() => {
     const TRIGGER_FEEL = {
       pistol_body: {
         name: '标准枪身',
-        rest: function () { return feedbackBlock(5, 2); },
+        rest: function () { return feedbackBlock(4, 3); },
         firePulses: [{ block: feedbackBlock(4, 3), ms: 80 }],
         rumblePulses: [{ s: 0.30, w: 0.15, d: 80, delay: 0 }],
         std: { trigger: 0.35, ms: 80 }
       },
       smg_body: {
         name: '冲锋枪身',
-        rest: function (pull, firing) { return firing ? vibrationBlock(3, 3, 35) : feedbackBlock(3, 2); },
+        rest: function (pull, firing) { return firing ? vibrationBlock(3, 3, 35) : feedbackBlock(3, 3); },
         fireSustain: vibrationBlock(3, 3, 35),
         firePulses: [{ block: vibrationBlock(3, 4, 45), ms: 60 }],
         rumblePulses: [{ s: 0.25, w: 0.30, d: 120, delay: 0 }],
@@ -5878,7 +5894,7 @@ const Game = (() => {
       },
       burst2_body: {
         name: '二连冲枪身',
-        rest: function () { return feedbackBlock(3, 3); },
+        rest: function () { return feedbackBlock(3, 2); },
         firePulses: [
           { block: feedbackBlock(4, 4), ms: 60, delay: 0 },
           { block: feedbackBlock(4, 4), ms: 60, delay: 70 }
@@ -5951,7 +5967,7 @@ const Game = (() => {
             master.gain.value = 0.14;
             master.connect(actx.destination, 0, 2); // 扬声器声道 2/3；实机若反了改 0/1
             enabled = true;
-            try { dualsense.setSpeaker(0x32, 0x04); } catch (e) {}
+            try { dualsense.setSpeaker(0x50, 0x04); } catch (e) {}
           } catch (e) { enabled = false; }
         })();
         return initPromise;
@@ -6023,7 +6039,7 @@ const Game = (() => {
       let device = null, mode = 'none', reportId = 0x02;
       let lastWriteAt = 0, lastPayload = '';
       let r2Block = offBlock(), l2Block = offBlock();
-      let rumbleA = 0, rumbleB = 0, speakerVol = 0x32, preamp = 0x04;
+      let rumbleA = 0, rumbleB = 0, speakerVol = 0x50, preamp = 0x04;
       let reconnectT = 0, listenerAttached = false;
       const isDS = d => !!(d && d.vendorId === 0x054c && (d.productId === 0x0ce6 || d.productId === 0x0df2));
       function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
@@ -6031,7 +6047,7 @@ const Game = (() => {
       function setRumble(a, b) { rumbleA = a | 0; rumbleB = b | 0; }
       function setSpeaker(vol, pre) { speakerVol = vol | 0; preamp = pre | 0; }
       function buildReport() {
-        const d = new Uint8Array(64);
+        const d = new Uint8Array(47);
         d[0] = 0xFF; d[1] = 0x57;
         d[2] = rumbleA; d[3] = rumbleB;
         d[4] = 0x00; d[5] = speakerVol; d[6] = 0x00;
@@ -6043,15 +6059,22 @@ const Game = (() => {
         d[44] = 0; d[45] = 0; d[46] = 0;
         return d;
       }
-      function crc32(buf) {
-        let crc = 0xFFFFFFFF;
-        for (let i = 0; i < buf.length; i++) {
-          crc ^= buf[i];
-          for (let j = 0; j < 8; j++) {
-            crc = (crc >>> 1) ^ (0xEADA2D49 & -(crc & 1));
-          }
+      const CRC32_TABLE = (() => {
+        const t = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+          t[n] = c >>> 0;
         }
-        return (crc ^ 0xFFFFFFFF) >>> 0;
+        return t;
+      })();
+      function crc32(buf) {
+        let r = 0xeada2d49 >>> 0;
+        for (let i = 0; i < 74 && i < buf.length; i++) {
+          const idx = ((r & 0xff) ^ (buf[i] & 0xff)) & 0xff;
+          r = (CRC32_TABLE[idx] ^ (r >>> 8)) >>> 0;
+        }
+        return r >>> 0;
       }
       function buildBtReport() {
         const d = new Uint8Array(78);
@@ -6065,7 +6088,7 @@ const Game = (() => {
         d[38] = preamp;
         const c = crc32(d.subarray(0, 74));
         d[74] = c & 0xff; d[75] = (c >>> 8) & 0xff; d[76] = (c >>> 16) & 0xff; d[77] = (c >>> 24) & 0xff;
-        return d;
+        return d.slice(1); // WebHID payload 不含报告 ID（77 字节）
       }
       function fallback() { mode = 'std'; device = null; }
       async function write() {
@@ -6197,6 +6220,7 @@ const Game = (() => {
         setTrigger: setTrigger, setRumble: setRumble, setSpeaker: setSpeaker,
         channel: function () { return mode; },
         blocks: { feedbackBlock: feedbackBlock, weaponBlock: weaponBlock, vibrationBlock: vibrationBlock, offBlock: offBlock },
+        btChecksum: crc32,
         getState: function () { return { mode: mode, r2: r2Block.slice(), l2: l2Block.slice(), rumbleA: rumbleA, rumbleB: rumbleB }; }
       };
     })();

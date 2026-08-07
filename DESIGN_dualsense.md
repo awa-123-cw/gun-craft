@@ -136,8 +136,8 @@ block[10] = 0
 ### 6.3 15 种枪身 R2 手感表
 | 枪身 | 常驻扳机（R2） | 开火反馈 | 开火马达 | 手感关键词 |
 |---|---|---|---|---|
-| 标准枪身 | Feedback pos5 str2 | Feedback pos4 str3，短 | A0.30 B0.15 80ms | 干脆轻快 |
-| 冲锋枪身 | Feedback pos3 str2；开火时 Vibration pos3 amp3 freq35 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
+| 标准枪身 | Feedback pos4 str3 | Feedback pos4 str3，短 | A0.30 B0.15 80ms | 干脆轻快 |
+| 冲锋枪身 | Feedback pos3 str3；开火时 Vibration pos3 amp3 freq35 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
 | 霰弹枪身 | Weapon 3→7 str3 | Feedback pos2 str8 | A0.85 B0.70 350ms | 沉重后坐 |
 | 狙击枪身 | 二段：pull<50% Feedback pos2 str2；≥50% Feedback pos5 str7 | Feedback pos1 str8 | A0.90 B0.75 450ms | 精密二段 |
 | 重型枪身 | Feedback pos2 str5 | 双脉冲 Feedback pos3 str6（90ms 间隔） | A0.60 B0.50 250ms | 厚重压制 |
@@ -207,3 +207,9 @@ block[10] = 0
 
 ## 十一、实施顺序（子代理任务）
 按 3.1 → 3.2 → 3.3 → 接入点 → 设置面板 → 测试 的顺序实现；每完成一层跑一次 `node --test tests/smoke.test.js`。
+
+## 十二、实机修复记录 v1.1（2026-08-08）
+- USB 输出报告 payload 修正为 47 字节（HID 描述符 95 2f）。Windows 的 WebHID 会拒绝超过报告最大长度的数据，原 64 字节导致 sendReport 抛错并降级到标准通道，自适应扳机完全不生效。
+- 蓝牙报告：payload 去掉报告 ID 字节（0x31 描述符 77 字节）；CRC 算法修正为 DualSense 专用校验（init 0xEADA2D49 + 标准 CRC32 表 0xEDB88320，无最终异或，覆盖含报告 ID 的前 74 字节）。
+- 扳机效果块力度位打包修正为 uint32 跨字节累加（与 dualsense-ts 官方编码一致）：原实现按字节直接位移，力度≥2 时多数区被清零，等于无阻力。
+- 标准枪身/冲锋枪身常驻阻力由强度 2 提到 3（二连冲保持 3/2 以维持 15 枪 rest 块唯一），确保首次上手即可明确感知。

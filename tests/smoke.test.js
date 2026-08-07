@@ -1798,7 +1798,11 @@ function makeHidContext() {
     opened: false,
     async open() { this.opened = true; },
     async close() {},
-    async sendReport(id, data) { writes.push({ id, data: Array.from(data) }); }
+    async sendReport(id, data) {
+      if (id === 0x02 && data.length !== 47) throw new Error('USB 报告 0x02 payload 必须为 47 字节，实际 ' + data.length);
+      if (id === 0x31 && data.length !== 77) throw new Error('蓝牙报告 0x31 payload 必须为 77 字节，实际 ' + data.length);
+      writes.push({ id, data: Array.from(data) });
+    }
   };
   ctx.navigator.hid = {
     devices: [device],
@@ -1863,7 +1867,7 @@ test('DualSense: WebHID 连接并写入测试报告', async () => {
   assert.strictEqual(writes[0].id, 0x02);
   assert.strictEqual(writes[0].data[0], 0xff);
   assert.strictEqual(writes[0].data[1], 0x57);
-  assert.ok(Array.isArray(writes[0].data) && writes[0].data.length >= 47);
+  assert.ok(Array.isArray(writes[0].data) && writes[0].data.length === 47, 'USB payload 应为 47 字节');
 });
 
 test('DualSense: 开火事件产生马达字节与 R2 脉冲块（HID）', async () => {
@@ -1969,3 +1973,57 @@ test('DualSense: 泵动枪身上膛触发 Weapon 扳机脉冲', async () => {
   assert.ok(game.haptics.pulse.block, '泵动上膛应有扳机脉冲');
   assert.strictEqual(Array.from(game.haptics.pulse.block)[0], 0x25);
 });
+
+
+test('DualSense: Windows 拒绝超长 USB 报告时自动切换蓝牙且 payload 77 字节', async () => {
+  const ctx = buildContext();
+  const writes = [];
+  const device = {
+    vendorId: 0x054c, productId: 0x0ce6,
+    opened: false,
+    async open() { this.opened = true; },
+    async close() {},
+    async sendReport(id, data) {
+      if (id === 0x02) throw new Error('simulate Windows reject long USB report');
+      if (data.length !== 77) throw new Error('BT payload 应为 77 字节');
+      writes.push({ id, data: Array.from(data) });
+    }
+  };
+  ctx.navigator.hid = {
+    devices: [device],
+    async getDevices() { return [device]; },
+    async requestDevice() { return [device]; },
+    handlers: {},
+    addEventListener(type, fn) { this.handlers[type] = fn; }
+  };
+  const Game = loadGame(ctx);
+  const game = Game.createGame(ctx.document.getElementById('game'));
+  const ok = await game.dualsense.connect();
+  assert.strictEqual(ok, true, '蓝牙降级连接应成功');
+  assert.strictEqual(game.dualsense.channel(), 'hid');
+  const bt = writes.find(w => w.id === 0x31);
+  assert.ok(bt, '应发送蓝牙报告 0x31');
+  assert.strictEqual(bt.data.length, 77, '蓝牙 payload 应为 77 字节');
+  // 蓝牙 payload 布局：常量 0x02 + flags1/2，随后数据区与 USB 同偏移
+  assert.strictEqual(bt.data[0], 0x02, '蓝牙常量字节');
+  assert.strictEqual(bt.data[1], 0xff, '蓝牙 flags1');
+  assert.strictEqual(bt.data[2], 0x57, '蓝牙 flags2');
+  assert.strictEqual(bt.data[11], 0x05, 'R2 模式字节在 payload[11]');
+  assert.strictEqual(bt.data[22], 0x05, 'L2 模式字节在 payload[22]');
+  // CRC 落在 payload 末尾 4 字节
+  const crc = game.dualsense.btChecksum;
+  assert.strictEqual(crc(new Uint8Array(74)), 0x9b4dd846 >>> 0, 'CRC 向量1');
+  const b2 = new Uint8Array(74);
+  b2[0] = 0x31;
+  assert.strictEqual(crc(b2), 0x56e95794 >>> 0, 'CRC 向量2');
+});
+
+test('DualSense: 标准枪身/冲锋枪身默认阻力明显可感知', () => {
+  const { game } = makeGame();
+  const pistol = Array.from(game.TRIGGER_FEEL.pistol_body.rest(0.6));
+  const smg = Array.from(game.TRIGGER_FEEL.smg_body.rest(0.6, false));
+  // feedback(4,3)：10 区活动位图 + 3bit/区力度（uint32 跨字节），参考 dualsense-ts 编码
+  assert.deepStrictEqual(pistol, [0x21, 240, 3, 0, 32, 73, 18, 0, 0, 0, 0], '标准枪身 feedback(4,3)');
+  assert.deepStrictEqual(smg, [0x21, 248, 3, 0, 36, 73, 18, 0, 0, 0, 0], '冲锋枪身 feedback(3,3)');
+});
+
