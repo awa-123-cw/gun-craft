@@ -926,7 +926,7 @@ test('背包上限 10：满包不拾取，红色小叉丢弃', () => {
   assert.strictEqual(game.world.inventory.length, 10, '容量保持 10');
   game.world.pickups.length = 0; // 清掉地上的原掉落，便于验证丢弃不产生新掉落
   game.openPanel('parts');
-  const row = game.ui.items[0];
+  const row = game.ui.items.find(r => !r.denied) || game.ui.items[0]; // 避开随机同 id（denied 拒绝丢弃）
   game.uiClick(row.discardX, row.discardY);
   assert.strictEqual(game.world.inventory.length, 9, '丢弃后容量减少');
   assert.ok(!game.world.pickups.some(p => p.kind === 'part'), '丢弃不产生掉落物');
@@ -1876,6 +1876,7 @@ test('DualSense: 开火事件产生马达字节与 R2 脉冲块（HID）', async
   game.haptics.frame(0.016);
   game.dualsense.flush();
   game.dualsense.frame(0.016);
+  await new Promise(r => setTimeout(r, 30)); // 等待写队列排空
   const last = writes[writes.length - 1];
   assert.ok(last.data[2] > 0, 'rumbleA 应大于 0，实际 ' + last.data[2]);
   assert.ok(last.data[3] > 0, 'rumbleB 应大于 0');
@@ -2025,10 +2026,10 @@ test('DualSense: 默认扳机阻力起点提前且段落感清晰', () => {
   const shotgun = Array.from(game.TRIGGER_FEEL.shotgun_body.rest(0.6));
   const sniper = Array.from(game.TRIGGER_FEEL.sniper_body.rest(0.6));
   // 10 区活动位图 + 3bit/区力度（uint32 跨字节），参考 dualsense-ts 编码
-  assert.deepStrictEqual(pistol, [0x21, 252, 3, 0, 73, 146, 36, 0, 0, 0, 0], '标准枪身 feedback(2,5) 起点区2');
-  assert.deepStrictEqual(smg, [0x21, 252, 3, 192, 182, 109, 27, 0, 0, 0, 0], '冲锋枪身 feedback(2,4) 起点区2');
+  assert.deepStrictEqual(pistol, [0x21, 254, 3, 176, 109, 219, 54, 0, 0, 0, 0], '标准枪身 feedback(1,7) 起点区1');
+  assert.deepStrictEqual(smg, [0x21, 255, 3, 109, 219, 182, 45, 0, 0, 0, 0], '冲锋枪身 feedback(0,6) 起点区0');
   assert.deepStrictEqual(shotgun, [37, 132, 0, 7, 0, 0, 0, 0, 0, 0, 0], '霰弹枪身 weapon(2,7,8) 强力段落');
-  assert.deepStrictEqual(sniper, [0x21, 252, 3, 192, 255, 255, 63, 0, 0, 0, 0], '狙击二段重段 feedback(2,8)');
+  assert.deepStrictEqual(sniper, [0x21, 254, 3, 248, 255, 255, 63, 0, 0, 0, 0], '狙击二段重段 feedback(1,8)');
 });
 
 
@@ -2066,16 +2067,88 @@ test('手柄背包面板：方键丢弃选中部件（叉键装备不变）', ()
 
 test('DualSense: 扳机自检依次发送 阻力→段落→扳机振动→Off', async () => {
   const { game, writes } = await makeHidGame();
+  const settle = () => new Promise(r => setTimeout(r, 30));
   const modeAt = () => writes[writes.length - 1].data[10];
   game.dualsense.startTriggerTest();
-  game.dualsense.flush(); game.dualsense.frame(0.2);
+  game.dualsense.flush(); game.dualsense.frame(0.2); await settle();
   assert.strictEqual(modeAt(), 0x21, '阶段1 Feedback(阻力)');
-  game.dualsense.flush(); game.dualsense.frame(1.1); // 累计 1.3s
+  game.dualsense.flush(); game.dualsense.frame(1.1); await settle(); // 累计 1.3s
   assert.strictEqual(modeAt(), 0x25, '阶段2 Weapon(段落)');
-  game.dualsense.flush(); game.dualsense.frame(1.3);
+  game.dualsense.flush(); game.dualsense.frame(1.3); await settle();
   assert.strictEqual(modeAt(), 0x26, '阶段3 Vibration(扳机振动)');
-  game.dualsense.flush(); game.dualsense.frame(1.3);
+  game.dualsense.flush(); game.dualsense.frame(1.3); await settle();
   assert.strictEqual(modeAt(), 0x05, '结束后恢复 Off');
   assert.strictEqual(game.dualsense.getTest(), null, '自检状态应清除');
+});
+
+
+test('DualSense: 开火时切换自动扳机 Vibration 模式且松开回 Off', async () => {
+  const { game, writes } = await makeHidGame();
+  const settle = () => new Promise(r => setTimeout(r, 30));
+  game.input.gp = { trig: 0.6, aim: false, fire: true };
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  await settle();
+  const last = writes[writes.length - 1];
+  assert.strictEqual(last.data[10], 0x26, '开火应发自动扳机 Vibration');
+  assert.strictEqual(last.data[19], 16, '标准枪身 auto 频率 16Hz');
+  assert.ok(last.data[13] > 0 && last.data[14] > 0, 'auto 振幅区应非零');
+  game.input.gp = { trig: 0, aim: false, fire: false };
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  await settle();
+  assert.strictEqual(writes[writes.length - 1].data[10], 0x05, '松开回 Off');
+  game.input.gp = { trig: 0.6, aim: false, fire: true };
+  game.world.guns[0].parts.body.id = 'minigun_body';
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  await settle();
+  const mini = writes[writes.length - 1];
+  assert.strictEqual(mini.data[10], 0x26);
+  assert.strictEqual(mini.data[19], 45, '加特林 auto 频率 45Hz');
+});
+
+test('DualSense: 连续点射后写队列串行化，最终状态不被异步乱序覆盖', async () => {
+  const ctx = buildContext();
+  const writes = [];
+  let sendCount = 0;
+  const device = {
+    vendorId: 0x054c, productId: 0x0ce6, opened: false,
+    async open() { this.opened = true; },
+    async close() {},
+    async sendReport(id, data) {
+      sendCount++;
+      // 前几次写入故意慢，制造异步乱序窗口
+      await new Promise(r => setTimeout(r, sendCount <= 4 ? 30 : 1));
+      if (id === 0x02 && data.length !== 47) throw new Error('bad len');
+      if (id === 0x31 && data.length !== 77) throw new Error('bad len');
+      writes.push({ id, data: Array.from(data) });
+    }
+  };
+  ctx.navigator.hid = {
+    devices: [device],
+    async getDevices() { return [device]; },
+    async requestDevice() { return [device]; },
+    handlers: {},
+    addEventListener() {}
+  };
+  const Game = loadGame(ctx);
+  const game = Game.createGame(ctx.document.getElementById('game'));
+  await game.dualsense.connect();
+  // 快速点射：按→松→按→松→按
+  for (const fire of [true, false, true, false, true]) {
+    game.input.gp = { trig: fire ? 0.6 : 0, aim: false, fire };
+    game.dualsense.flush();
+    game.dualsense.frame(0.016);
+  }
+  await new Promise(r => setTimeout(r, 150));
+  // 模拟最终按住状态，等待队列排空
+  game.input.gp = { trig: 0.6, aim: false, fire: true };
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  await new Promise(r => setTimeout(r, 150));
+  const finalMode = writes[writes.length - 1].data[10];
+  assert.strictEqual(finalMode, 0x26, '最终按住应为自动扳机模式而非线性(Off)');
+  assert.notStrictEqual(finalMode, 0x05, '不允许停留在线性');
 });
 
