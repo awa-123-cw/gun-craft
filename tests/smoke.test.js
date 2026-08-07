@@ -89,7 +89,7 @@ test('固定时间步与相机跟随', () => {
   game.world.player.x = 1000;
   game.world.player.y = 700;
   for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s = 60 步
-  assert.ok(game.camera.x > 700 && game.camera.x < 800, '缩小视角后相机应在房间中心附近');
+  assert.ok(game.camera.x > 900, '调大视角后相机应跟随玩家');
   assert.ok(Math.abs(game.world.time - 0.5) < 1e-9, '时间应推进 0.5s');
 });
 
