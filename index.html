@@ -3494,7 +3494,10 @@ const Game = (() => {
       if (needsClear) {
         setBanner('成功击败', 1.6, '门已开启');
         audio.play('door');
-        if (room.type !== 'boss') audio.play('victory');
+        if (room.type !== 'boss') {
+          audio.play('victory');
+          stopBossMusic(); // 清房：胜利音效与战斗 BGM 停止同时发生
+        }
         fx.floater(world.player.x, world.player.y - 40, '门已开启', 'normal');
       }
     }

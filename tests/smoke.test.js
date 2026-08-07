@@ -1282,4 +1282,7 @@ test('清房后播放胜利音效', () => {
   }
   assert.strictEqual(game.world.room.cleared, true, '房间应最终清空');
   assert.ok(game.audioDebug().includes('victory'), '清房应播放胜利音效，实际最近音效: ' + game.audioDebug().slice(-6).join(','));
+  const st = game.musicStatus();
+  assert.strictEqual(st.state, 'stopped', '清房后应停止战斗音乐');
+  assert.ok(!st.song, '清房后不应有进行中的曲目');
 });
