@@ -2743,7 +2743,7 @@ const Game = (() => {
         ly: Math.abs(gp.axes[1]) > dead ? gp.axes[1] : 0,
         ax: Math.abs(gp.axes[2]) > dead ? gp.axes[2] : 0,
         ay: Math.abs(gp.axes[3]) > dead ? gp.axes[3] : 0,
-        fire: btn(7), dash: btn(0), interact: btn(2), reload: btn(3),
+        fire: btn(7) || (gp.buttons[7] && (gp.buttons[7].value || 0) > 0.05), dash: btn(0), interact: btn(2), reload: btn(3),
         panel: btn(8), pause: btn(9), switchR: btn(5), switchL: btn(4),
         cancel: btn(1), confirm: btn(0), aim: btn(6), trig: (gp.buttons[7] && gp.buttons[7].value) || 0, trigL: (gp.buttons[6] && gp.buttons[6].value) || 0,
         navUp: btn(12), navDown: btn(13), navLeft: btn(14), navRight: btn(15)
@@ -5826,7 +5826,7 @@ const Game = (() => {
       pistol_body: {
         name: '标准枪身',
         rest: function () { return feedbackBlock(1, 7); },
-        auto: vibrationBlock(0, 6, 16),
+        auto: vibrationBlock(0, 8, 16),
         firePulses: [{ block: feedbackBlock(2, 7), ms: 90 }],
         rumblePulses: [{ s: 0.30, w: 0.15, d: 80, delay: 0 }],
         std: { trigger: 0.35, ms: 80 }
@@ -5834,7 +5834,7 @@ const Game = (() => {
       smg_body: {
         name: '冲锋枪身',
         rest: function (pull, firing) { return firing ? vibrationBlock(2, 4, 38) : feedbackBlock(0, 6); },
-        auto: vibrationBlock(0, 6, 28),
+        auto: vibrationBlock(0, 8, 28),
         fireSustain: vibrationBlock(2, 4, 38),
         firePulses: [{ block: vibrationBlock(2, 5, 42), ms: 60 }],
         rumblePulses: [{ s: 0.25, w: 0.30, d: 120, delay: 0 }],
@@ -5860,7 +5860,7 @@ const Game = (() => {
       heavy_body: {
         name: '重型枪身',
         rest: function () { return feedbackBlock(0, 7); },
-        auto: vibrationBlock(0, 7, 14),
+        auto: vibrationBlock(0, 8, 14),
         firePulses: [
           { block: feedbackBlock(2, 7), ms: 120, delay: 0 },
           { block: feedbackBlock(2, 7), ms: 120, delay: 90 }
@@ -5871,7 +5871,7 @@ const Game = (() => {
       burst3_body: {
         name: '三点火枪身',
         rest: function () { return feedbackBlock(2, 6); },
-        auto: vibrationBlock(0, 6, 18),
+        auto: vibrationBlock(0, 8, 18),
         firePulses: [
           { block: feedbackBlock(2, 6), ms: 50, delay: 0 },
           { block: feedbackBlock(2, 6), ms: 50, delay: 60 },
@@ -5916,7 +5916,7 @@ const Game = (() => {
       minigun_body: {
         name: '加特林枪身',
         rest: function (pull, firing) { return firing ? vibrationBlock(2, 5, 30) : feedbackBlock(0, 5); },
-        auto: vibrationBlock(0, 7, 45),
+        auto: vibrationBlock(0, 8, 45),
         fireSustain: vibrationBlock(2, 4, 28),
         firePulses: [{ block: vibrationBlock(2, 5, 32), ms: 80 }],
         rumblePulses: [{ s: 0.20, w: 0.50, d: 120, delay: 0 }],
@@ -5927,7 +5927,7 @@ const Game = (() => {
         name: '二连冲枪身',
         rest: function () { return feedbackBlock(1, 5); },
         auto: vibrationBlock(0, 8, 8),
-        auto: vibrationBlock(0, 6, 22),
+        auto: vibrationBlock(0, 8, 22),
         firePulses: [
           { block: feedbackBlock(2, 5), ms: 60, delay: 0 },
           { block: feedbackBlock(2, 5), ms: 60, delay: 70 }
@@ -5949,7 +5949,7 @@ const Game = (() => {
       plasma_body: {
         name: '等离子枪身',
         rest: function () { return vibrationBlock(0, 4, 22); },
-        auto: vibrationBlock(0, 7, 30),
+        auto: vibrationBlock(0, 8, 30),
         firePulses: [{ block: vibrationBlock(2, 4, 30), ms: 150 }],
         rumblePulses: [{ s: 0.40, w: 0.30, d: 150, delay: 0 }],
         std: { trigger: 0.50, ms: 150 }
@@ -5966,7 +5966,7 @@ const Game = (() => {
       drill_body: {
         name: '钻头枪身',
         rest: function (pull, firing) { return firing ? vibrationBlock(2, 4, 26) : vibrationBlock(0, 4, 24); },
-        auto: vibrationBlock(0, 7, 36),
+        auto: vibrationBlock(0, 8, 36),
         fireSustain: vibrationBlock(2, 3, 24),
         firePulses: [{ block: vibrationBlock(2, 4, 28), ms: 120 }],
         rumblePulses: [{ s: 0.45, w: 0.40, d: 120, delay: 0 }],
@@ -6266,7 +6266,7 @@ const Game = (() => {
         const feel = (g && TRIGGER_FEEL[g.parts.body.id]) || TRIGGER_FEEL.pistol_body;
         const gp = input.gp;
         const pull = gp ? clamp01(gp.trig || 0) : 0;
-        const firing = !!(input.mouse.down || (gp && gp.fire) || input.touch.firing);
+        const firing = !!(input.mouse.down || (gp && (gp.fire || gp.trig > 0.05)) || input.touch.firing);
         let block = null;
         const pulse = haptics.pulse;
         if (feel.auto && firing && pull > 0.001) block = feel.auto; // 开火=自动扳机（强烈循环振动）

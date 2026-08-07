@@ -1927,7 +1927,7 @@ test('DualSense: 手柄 L2/R2 映射正确（L2=aim，R2=trig 力度）', () => 
 
 test('DualSense: 每帧按当前枪刷新 R2 阻力、L2 阻尼，松开归零', async () => {
   const { game } = await makeHidGame();
-  game.input.gp = { trig: 0.3, aim: true, fire: false };
+  game.input.gp = { trig: 0.02, aim: true, fire: false }; // 未达开火阈值 → rest
   game.dualsense.flush();
   game.dualsense.frame(0.016);
   let st = game.dualsense.getState();
@@ -1935,11 +1935,14 @@ test('DualSense: 每帧按当前枪刷新 R2 阻力、L2 阻尼，松开归零',
   assert.strictEqual(Array.from(st.l2)[0], 0x21, 'L2 按住有阻尼');
   game.world.guns[0].parts.body.id = 'sniper_body';
   game.input.gp.trig = 0.8;
+  game.input.gp.fire = true; // 开火 → 自动扳机
   game.dualsense.flush();
   game.dualsense.frame(0.016);
   st = game.dualsense.getState();
-  assert.deepStrictEqual(Array.from(st.r2), Array.from(game.TRIGGER_FEEL.sniper_body.rest(0.8)), '狙击二段重阻');
+  assert.strictEqual(Array.from(st.r2)[0], 0x26, '狙击开火=自动扳机');
+  assert.strictEqual(Array.from(st.r2)[9], 8, '狙击 auto 频率 8Hz');
   game.input.gp.trig = 0;
+  game.input.gp.fire = false;
   game.input.gp.aim = false;
   game.dualsense.flush();
   game.dualsense.frame(0.016);
@@ -2092,7 +2095,7 @@ test('DualSense: 开火时切换自动扳机 Vibration 模式且松开回 Off', 
   const last = writes[writes.length - 1];
   assert.strictEqual(last.data[10], 0x26, '开火应发自动扳机 Vibration');
   assert.strictEqual(last.data[19], 16, '标准枪身 auto 频率 16Hz');
-  assert.ok(last.data[13] > 0 && last.data[14] > 0, 'auto 振幅区应非零');
+  assert.deepStrictEqual(last.data.slice(13, 17), [255, 255, 255, 63], '振幅拉满 amp8：10 区力度全满');
   game.input.gp = { trig: 0, aim: false, fire: false };
   game.dualsense.flush();
   game.dualsense.frame(0.016);
@@ -2150,5 +2153,36 @@ test('DualSense: 连续点射后写队列串行化，最终状态不被异步乱
   const finalMode = writes[writes.length - 1].data[10];
   assert.strictEqual(finalMode, 0x26, '最终按住应为自动扳机模式而非线性(Off)');
   assert.notStrictEqual(finalMode, 0x05, '不允许停留在线性');
+});
+
+
+test('DualSense: 自动扳机从轻微模拟拉动即激活（起始位置最靠前）', async () => {
+  const { game, writes } = await makeHidGame();
+  // 按钮未判定按下（fire=false），但模拟值 0.1 > 5% → 应立即进入自动扳机
+  game.input.gp = { trig: 0.1, aim: false, fire: false };
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  await new Promise(r => setTimeout(r, 30));
+  const last = writes[writes.length - 1];
+  assert.strictEqual(last.data[10], 0x26, '轻微拉动即自动扳机');
+  assert.strictEqual(last.data[11], 0xff, '振动覆盖区 0~9（起始区0）');
+  assert.strictEqual(last.data[19], 16, '标准枪身 auto 16Hz');
+});
+
+test('DualSense: R2 模拟值 >5% 时 pollGamepad 判定为开火（无需按钮按下阈值）', () => {
+  const { ctx, game } = makeGame();
+  const pad = {
+    buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: false, value: i === 7 ? 0.12 : 0 })),
+    axes: [0, 0, 0, 0]
+  };
+  ctx.navigator.getGamepads = () => [pad];
+  game.pollGamepad();
+  assert.strictEqual(game.input.gp.fire, true, '模拟值 0.12 应视为开火');
+  assert.strictEqual(game.input.gp.trig, 0.12, 'trig 应为模拟值');
+  // 松开后恢复
+  pad.buttons[7].value = 0;
+  ctx.navigator.getGamepads = () => [pad];
+  game.pollGamepad();
+  assert.strictEqual(game.input.gp.fire, false, '模拟值归零不应开火');
 });
 

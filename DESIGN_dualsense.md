@@ -136,21 +136,21 @@ block[10] = 0
 ### 6.3 15 种枪身 R2 手感表
 | 枪身 | 常驻扳机（R2） | 开火反馈 | 开火马达 | 手感关键词 |
 |---|---|---|---|---|
-| 标准枪身 | Feedback pos1 str7 | 开火=自动扳机 16Hz/amp6 | A0.30 B0.15 80ms | 干脆轻快 |
-| 冲锋枪身 | Feedback pos0 str6；开火=自动扳机 28Hz/amp6 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
+| 标准枪身 | Feedback pos1 str7 | 开火=自动扳机 16Hz/amp8 | A0.30 B0.15 80ms | 干脆轻快 |
+| 冲锋枪身 | Feedback pos0 str6；开火=自动扳机 28Hz/amp8 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
 | 霰弹枪身 | Weapon 2→7 str8；开火=自动扳机 12Hz/amp8 | Feedback pos2 str8 | A0.85 B0.70 350ms | 沉重后坐 |
 | 狙击枪身 | 二段：pull<45% Feedback pos0 str4；≥45% Feedback pos1 str8；开火=自动扳机 8Hz/amp8 | Feedback pos1 str8 | A0.90 B0.75 450ms | 精密二段 |
-| 重型枪身 | Feedback pos0 str7；开火=自动扳机 14Hz/amp7 | 双脉冲 Feedback pos2 str7（90ms 间隔） | A0.60 B0.50 250ms | 厚重压制 |
-| 三点火枪身 | Feedback pos2 str6；开火=自动扳机 18Hz/amp6 | 三连脉冲 Feedback pos2 str6（60ms 间隔） | A0.35×3 各 50ms | 三连节拍 |
+| 重型枪身 | Feedback pos0 str7；开火=自动扳机 14Hz/amp8 | 双脉冲 Feedback pos2 str7（90ms 间隔） | A0.60 B0.50 250ms | 厚重压制 |
+| 三点火枪身 | Feedback pos2 str6；开火=自动扳机 18Hz/amp8 | 三连脉冲 Feedback pos2 str6（60ms 间隔） | A0.35×3 各 50ms | 三连节拍 |
 | 左轮枪身 | Feedback pos0 str8；开火=自动扳机 10Hz/amp8 | Feedback pos2 str8 短 | A0.60 B0.40 130ms；暴击×1.5 | 硬朗重扣 |
 | 高斯枪身 | 动态蓄力：Feedback pos0 str4 → pos2 str7 → pos4 str8；开火=自动扳机 20Hz/amp8 | Vibration pos2 amp5 freq60 短 | A0.90 B0.80 400ms | 蓄能释放 |
 | 齐射枪身 | Weapon 2→5 str8；开火=自动扳机 14Hz/amp8 | Feedback pos2 str8 | A0.70 B0.60 300ms | 齐射轰鸣 |
-| 加特林枪身 | Feedback pos0 str5；开火=自动扳机 45Hz/amp7 | 持续扳机振动 | A0.20 B0.50 交替持续 | 转管咆哮 |
-| 二连冲枪身 | Feedback pos1 str5；开火=自动扳机 22Hz/amp6 | 双脉冲 Feedback pos2 str5（70ms 间隔） | A0.30×2 各 60ms | 双连点射 |
+| 加特林枪身 | Feedback pos0 str5；开火=自动扳机 45Hz/amp8 | 持续扳机振动 | A0.20 B0.50 交替持续 | 转管咆哮 |
+| 二连冲枪身 | Feedback pos1 str5；开火=自动扳机 22Hz/amp8 | 双脉冲 Feedback pos2 str5（70ms 间隔） | A0.30×2 各 60ms | 双连点射 |
 | 手炮枪身 | Feedback pos2 str8；开火=自动扳机 10Hz/amp8 | Feedback pos2 str8 + Vibration amp4 freq20 300ms | A0.90 B0.85 500ms | 重炮轰鸣 |
-| 等离子枪身 | Vibration pos0 amp4 freq22（能量嗡嗡）；开火=自动扳机 30Hz/amp7 | Vibration amp4 freq30 短 | A0.40 B0.30 150ms | 能量束 |
+| 等离子枪身 | Vibration pos0 amp4 freq22（能量嗡嗡）；开火=自动扳机 30Hz/amp8 | Vibration amp4 freq30 短 | A0.40 B0.30 150ms | 能量束 |
 | 泵动枪身 | Feedback pos1 str6；开火=自动扳机 8Hz/amp8 | Feedback pos2 str6 快；上膛时 Weapon 2→6 str7 | A0.50 B0.35 120ms | 泵动机械感 |
-| 钻头枪身 | Vibration pos0 amp4 freq24；开火=自动扳机 36Hz/amp7 | 持续中频；穿透命中加强脉冲 | A0.45 B0.40 持续 | 钻头撕扯 |
+| 钻头枪身 | Vibration pos0 amp4 freq24；开火=自动扳机 36Hz/amp8 | 持续中频；穿透命中加强脉冲 | A0.45 B0.40 持续 | 钻头撕扯 |
 
 **L2（可选增强，建议实现）**：长按 L2 = 慢动作瞄准（与空格一致的新手柄映射）；按住时 L2 阻力 Feedback pos4 str2 轻柔阻尼。若实现中发现与现有操作冲突，回退为仅保留阻力反馈。
 
@@ -227,6 +227,11 @@ block[10] = 0
 
 ## 十五、实机修复记录 v1.4（2026-08-08）
 - 阻力起点再次提前：多数枪起阻区 0~1（0%~10%），强度普遍 6~8（接近最大）；霰弹/齐射保持 Weapon 最短起点区 2、强度 8。
-- 开枪时自适应扳机切换为"自动扳机"模式（Vibration 0x26）：每把枪独立频率/振幅（标准 16Hz/amp6、加特林 45Hz/amp7、霰弹 12Hz/amp8、钻头 36Hz/amp7 等），从 0 区起振，按住即强烈循环振动；松开回 Off，非开火保持各自阻力/段落。
+- 开枪时自适应扳机切换为"自动扳机"模式（Vibration 0x26）：每把枪独立频率/振幅（标准 16Hz/amp8、加特林 45Hz/amp8、霰弹 12Hz/amp8、钻头 36Hz/amp8 等），从 0 区起振，按住即强烈循环振动；松开回 Off，非开火保持各自阻力/段落。
 - 修复连按扳机偶发完全线性：HID 写队列串行化（sendNow 链式排队），lastPayload 仅在顺序完成后更新，消除异步乱序完成导致"控制器已处于 Off 而游戏以为已发阻力"的竞态。
 - 开火事件、自检、自动扳机切换各加回归测试（138 → 140）。
+
+## 十六、实机修复记录 v1.5（2026-08-08）
+- 开火自动扳机起始位置集体前移：激活条件从"按钮被判定按下"改为 R2 模拟值 >5%，刚拉动扳机即进入自动扳机（振动区 0~9 全覆盖、起始区 0）。
+- 自动扳机振幅全部拉满到 8（协议最大档），频率保持每枪独立（标准 16Hz、加特林 45Hz、霰弹 12Hz 等）。
+- 新增回归：模拟值轻微拉动即激活自动扳机、pollGamepad 模拟扳机阈值映射（140 → 142）。
