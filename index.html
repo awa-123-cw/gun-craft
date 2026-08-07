@@ -1452,7 +1452,7 @@ const Game = (() => {
       mouse: { x: 0, y: 0, down: false, downPrev: false }, mouseHard: false,
       wheelDelta: 0, frameHandled: false,
       tapQueue: new Set(), dashTap: false,
-      gp: null, gpPrev: null,
+      gp: null, gpPrev: null, padInput: false,
       touch: { moveId: null, moveOrigin: { x: 0, y: 0 }, moveVec: { x: 0, y: 0 }, aimId: null, aimPos: { x: 0, y: 0 }, firing: false }
     };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
@@ -2429,6 +2429,7 @@ const Game = (() => {
       input.dashTap = false;
       input.gp = null;
       input.gpPrev = null;
+      input.padInput = false;
       input.touch.moveId = null;
       input.touch.moveVec = { x: 0, y: 0 };
       input.touch.aimId = null;
@@ -2461,6 +2462,7 @@ const Game = (() => {
     }
     function onKeyUp(e) { input.keys.delete(e.code); }
     function onMouseMove(e) {
+      input.padInput = false; // 鼠标一动切回键鼠模式
       if (canvas.style) canvas.style.cursor = 'crosshair'; // 鼠标一动恢复光标
       const rect = canvas.getBoundingClientRect();
       input.mouse.x = e.clientX - rect.left;
@@ -2690,7 +2692,7 @@ const Game = (() => {
       const pads = navigator.getGamepads();
       const gp = pads && pads[0];
       const prev = input.gpPrev;
-      if (!gp) { input.gp = null; input.gpPrev = null; if (canvas.style) canvas.style.cursor = 'crosshair'; return; }
+      if (!gp) { input.gp = null; input.gpPrev = null; input.padInput = false; if (canvas.style) canvas.style.cursor = 'crosshair'; return; }
       const dead = 0.25;
       const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
       const cur = {
@@ -2704,7 +2706,14 @@ const Game = (() => {
         navUp: btn(12), navDown: btn(13), navLeft: btn(14), navRight: btn(15)
       };
       input.gp = cur;
-      if (canvas.style) canvas.style.cursor = 'none'; // 手柄使用中隐藏鼠标光标
+      // 手柄有实际输入（按键/摇杆）才视为手柄模式并隐藏光标；
+      // 鼠标一动（onMouseMove 置 padInput=false）光标立即恢复
+      if (cur.fire || cur.dash || cur.interact || cur.reload || cur.panel || cur.pause ||
+          cur.switchR || cur.switchL || cur.cancel || cur.navUp || cur.navDown || cur.navLeft || cur.navRight ||
+          cur.lx !== 0 || cur.ly !== 0 || cur.ax !== 0 || cur.ay !== 0) {
+        input.padInput = true;
+      }
+      if (input.padInput && canvas.style) canvas.style.cursor = 'none';
       if (prev) {
         if (cur.dash && !prev.dash) {
           input.dashTap = true;
@@ -2901,7 +2910,7 @@ const Game = (() => {
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         p.aimAngle += utils.clamp(diff, -8 * dt, 8 * dt); // 平滑转向，不生硬
-      } else {
+      } else if (!gp) {
         const mx = sxToWx(input.mouse.x);
         const my = syToWy(input.mouse.y);
         const manualAngle = Math.atan2(my - p.y, mx - p.x);

@@ -1569,15 +1569,35 @@ test('手柄 PS5 映射：交互=方(2)、瞬身=叉(0)、取消=圈(1)', () => 
   assert.ok(game.input.tapQueue.has('cancel'), '圈(1) 应发出取消事件');
 });
 
-test('手柄连接时隐藏鼠标光标，断开恢复', () => {
+test('手柄有输入时隐藏光标，切回键鼠后恢复且不再被空闲手柄盖掉', () => {
   const { ctx, game } = makeGame();
   const canvas = ctx.document.getElementById('game');
-  ctx.navigator.getGamepads = () => [fakePad([])];
+  ctx.navigator.getGamepads = () => [fakePad([true])]; // 叉键有输入
   game.pollGamepad();
-  assert.strictEqual(canvas.style.cursor, 'none', '手柄使用中应隐藏光标');
+  assert.strictEqual(canvas.style.cursor, 'none', '手柄有输入时应隐藏光标');
+  game.input.padInput = false; // 模拟鼠标移动切回键鼠（onMouseMove 同时恢复光标）
+  canvas.style.cursor = 'crosshair';
+  ctx.navigator.getGamepads = () => [fakePad([])]; // 手柄仍连接但空闲
+  game.pollGamepad();
+  assert.strictEqual(canvas.style.cursor, 'crosshair', '键鼠模式下空闲手柄不应再隐藏光标');
+  ctx.navigator.getGamepads = () => [fakePad([false, false, true])]; // 又按了方键
+  game.pollGamepad();
+  assert.strictEqual(canvas.style.cursor, 'none', '再次使用手柄应重新隐藏光标');
   ctx.navigator.getGamepads = () => [];
   game.pollGamepad();
   assert.strictEqual(canvas.style.cursor, 'crosshair', '手柄断开应恢复光标');
+});
+
+test('手柄空闲时角色不面向鼠标位置', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const p = game.world.player;
+  p.x = 600; p.y = 500;
+  p.aimAngle = 1.0;
+  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 }; // 手柄连接但无输入
+  game.input.mouse.x = 480; game.input.mouse.y = 270; // 鼠标在远处
+  for (let i = 0; i < 10; i++) game.update(1 / 120);
+  assert.ok(Math.abs(p.aimAngle - 1.0) < 0.01, '手柄空闲时不应面朝鼠标位置，当前 ' + p.aimAngle);
 });
 
 test('手柄确认键可开始游戏', () => {
