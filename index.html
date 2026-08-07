@@ -54,29 +54,59 @@ const utils = (() => {
     arr.pop();
   }
   function circleRectHit(px, py, r, rect) {
-    const nx = clamp(px, rect.x, rect.x + rect.w);
-    const ny = clamp(py, rect.y, rect.y + rect.h);
-    const dx = px - nx, dy = py - ny;
+    // 支持旋转障碍物：把点转到障碍物局部坐标系后再做 AABB 检测
+    const rot = rect.rot || 0;
+    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    let lx = px - cx, ly = py - cy;
+    if (rot) {
+      const c = Math.cos(-rot), s = Math.sin(-rot);
+      const rx = lx * c - ly * s;
+      const ry = lx * s + ly * c;
+      lx = rx; ly = ry;
+    }
+    const hw = rect.w / 2, hh = rect.h / 2;
+    const nx = clamp(lx, -hw, hw);
+    const ny = clamp(ly, -hh, hh);
+    const dx = lx - nx, dy = ly - ny;
     return dx * dx + dy * dy < r * r;
   }
   function resolveCircleRect(px, py, r, rect) {
-    const nx = clamp(px, rect.x, rect.x + rect.w);
-    const ny = clamp(py, rect.y, rect.y + rect.h);
-    const dx = px - nx, dy = py - ny;
+    // 支持旋转障碍物：在局部坐标解算后转回世界坐标
+    const rot = rect.rot || 0;
+    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    let lx = px - cx, ly = py - cy;
+    if (rot) {
+      const c = Math.cos(-rot), s = Math.sin(-rot);
+      const rx = lx * c - ly * s;
+      const ry = lx * s + ly * c;
+      lx = rx; ly = ry;
+    }
+    const hw = rect.w / 2, hh = rect.h / 2;
+    const nx = clamp(lx, -hw, hw);
+    const ny = clamp(ly, -hh, hh);
+    const dx = lx - nx, dy = ly - ny;
     const d2 = dx * dx + dy * dy;
     if (d2 >= r * r) return { x: px, y: py };
+    let ex, ey;
     if (d2 === 0) {
-      const left = px - rect.x, right = rect.x + rect.w - px;
-      const top = py - rect.y, bottom = rect.y + rect.h - py;
+      const left = lx + hw, right = hw - lx, top = ly + hh, bottom = hh - ly;
       const m = Math.min(left, right, top, bottom);
-      if (m === left) px = rect.x - r;
-      else if (m === right) px = rect.x + rect.w + r;
-      else if (m === top) py = rect.y - r;
-      else py = rect.y + rect.h + r;
-      return { x: px, y: py };
+      if (m === left) { ex = -hw - r; ey = ly; }
+      else if (m === right) { ex = hw + r; ey = ly; }
+      else if (m === top) { ex = lx; ey = -hh - r; }
+      else { ex = lx; ey = hh + r; }
+    } else {
+      const d = Math.sqrt(d2);
+      ex = nx + (dx / d) * r;
+      ey = ny + (dy / d) * r;
     }
-    const d = Math.sqrt(d2);
-    return { x: nx + (dx / d) * r, y: ny + (dy / d) * r };
+    if (rot) {
+      const c = Math.cos(rot), s = Math.sin(rot);
+      const wx = ex * c - ey * s;
+      const wy = ex * s + ey * c;
+      ex = wx; ey = wy;
+    }
+    return { x: cx + ex, y: cy + ey };
   }
   return { clamp, lerp, rand, randInt, distance, rectsOverlap, mulberry32, swapRemove, circleRectHit, resolveCircleRect };
 })();

@@ -1772,3 +1772,19 @@ test('手柄转键鼠后角色恢复面向鼠标', () => {
   game.update(1 / 120);
   assert.ok(Math.abs(p.aimAngle) < 0.01, '切回键鼠后应面向鼠标方向，当前 ' + p.aimAngle);
 });
+
+test('障碍物旋转后碰撞面跟随旋转（不再用未旋转的 AABB）', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.room.obstacles = [{ x: 400, y: 350, w: 100, h: 200, rot: Math.PI / 2, hp: 200, maxHp: 200, kvx: 0, kvy: 0, vr: 0, delay: 0, splits: 0, knockT: -9, pushedBy: null, hitT: -9 }];
+  const o = game.world.room.obstacles[0];
+  const before = o.hp;
+  // (450,380) 在未旋转 AABB 内，但在旋转 90° 后的实际形状外 → 子弹应穿过不命中
+  game.world.bullets.push({ x: 450, y: 380, px: 450, py: 380, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
+  game.update(1 / 120);
+  assert.strictEqual(o.hp, before, '旋转后形状外的子弹不应命中');
+  // (450,470) 在旋转后的实际形状内 → 子弹应命中
+  game.world.bullets.push({ x: 450, y: 470, px: 450, py: 470, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
+  game.update(1 / 120);
+  assert.ok(o.hp < before, '旋转后形状内的子弹应命中');
+});
