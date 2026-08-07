@@ -87,6 +87,7 @@ const Game = (() => {
   const STEP = 1 / 120;
   const ROOM_W = 1500;
   const ROOM_H = 1100;
+  const ZOOM = 0.5; // POV 缩小 50%
 
   // ===== PARTS（部件库）=====
   const PARTS = {
@@ -100,7 +101,27 @@ const Game = (() => {
       sniper_body: { id: 'sniper_body', slot: 'body', name: '狙击枪身', rarity: 3, color: '#b06cff', desc: '高伤慢速',
         base: { fireRate: 1.1, damage: 65, magSize: 4, reloadTime: 1.6, spread: 0.005, pierce: 1 } },
       heavy_body: { id: 'heavy_body', slot: 'body', name: '重型枪身', rarity: 4, color: '#ff8f3d', desc: '大弹鼓',
-        base: { fireRate: 6, damage: 15.4, magSize: 48, reloadTime: 2.2, spread: 0.07 } }
+        base: { fireRate: 6, damage: 15.4, magSize: 48, reloadTime: 2.2, spread: 0.07 } },
+      burst_body: { id: 'burst_body', slot: 'body', name: '连发枪身', rarity: 1, color: '#7ef29a', desc: '高射速连发',
+        base: { fireRate: 18, damage: 5, magSize: 30, reloadTime: 1.3, spread: 0.11 } },
+      revolver_body: { id: 'revolver_body', slot: 'body', name: '左轮枪身', rarity: 2, color: '#4dc9ff', desc: '大威力六发',
+        base: { fireRate: 3.5, damage: 34, magSize: 6, reloadTime: 1.0, spread: 0.04 } },
+      railgun_body: { id: 'railgun_body', slot: 'body', name: '磁轨枪身', rarity: 3, color: '#b06cff', desc: '高穿透重炮',
+        base: { fireRate: 1.4, damage: 80, magSize: 2, reloadTime: 1.8, spread: 0.003, pierce: 2, lifeMul: 1.3 } },
+      minigun_body: { id: 'minigun_body', slot: 'body', name: '加特林枪身', rarity: 4, color: '#ff8f3d', desc: '极限射速',
+        base: { fireRate: 22, damage: 4, magSize: 90, reloadTime: 2.4, spread: 0.13 } },
+      lever_body: { id: 'lever_body', slot: 'body', name: '杠杆枪身', rarity: 2, color: '#cfd8ff', desc: '快速换弹',
+        base: { fireRate: 4.5, damage: 26, magSize: 7, reloadTime: 0.8, spread: 0.05 } },
+      dual_body: { id: 'dual_body', slot: 'body', name: '双管枪身', rarity: 1, color: '#ffd166', desc: '双弹齐发',
+        base: { fireRate: 2.5, damage: 18, magSize: 4, reloadTime: 1.4, spread: 0.18, pellet: 2 } },
+      arc_body: { id: 'arc_body', slot: 'body', name: '电弧枪身', rarity: 3, color: '#35e0ff', desc: '短程强击',
+        base: { fireRate: 5, damage: 16, magSize: 10, reloadTime: 1.1, spread: 0.08, lifeMul: 0.7 } },
+      burst3_body: { id: 'burst3_body', slot: 'body', name: '三连点射枪身', rarity: 2, color: '#7ef29a', desc: '精准连点',
+        base: { fireRate: 6, damage: 12, magSize: 15, reloadTime: 1.2, spread: 0.06 } },
+      drill_body: { id: 'drill_body', slot: 'body', name: '钻头枪身', rarity: 4, color: '#ff4d5e', desc: '破甲穿透',
+        base: { fireRate: 7, damage: 20, magSize: 20, reloadTime: 1.5, spread: 0.05, pierce: 1 } },
+      laser_body: { id: 'laser_body', slot: 'body', name: '激光枪身', rarity: 3, color: '#b06cff', desc: '超远射程',
+        base: { fireRate: 3, damage: 40, magSize: 6, reloadTime: 1.4, spread: 0.001, lifeMul: 1.5 } }
     },
     ammo: {
       standard_ammo: { id: 'standard_ammo', slot: 'ammo', name: '标准弹药', rarity: 0, color: '#ffd166', desc: '无特殊',
@@ -114,7 +135,27 @@ const Game = (() => {
       explosive_ammo: { id: 'explosive_ammo', slot: 'ammo', name: '爆炸弹', rarity: 2, color: '#ff8f3d', desc: '命中范围爆炸',
         base: { pellet: 1, explosionRadius: 90 } },
       chain_ammo: { id: 'chain_ammo', slot: 'ammo', name: '电磁链弹', rarity: 4, color: '#35e0ff', desc: '命中电链传导 x2',
-        base: { pellet: 1, chain: 2 } }
+        base: { pellet: 1, chain: 2 } },
+      buckshot_ammo: { id: 'buckshot_ammo', slot: 'ammo', name: '鹿弹', rarity: 2, color: '#ffd166', desc: '三片弹',
+        base: { pellet: 3 } },
+      heavy_ammo: { id: 'heavy_ammo', slot: 'ammo', name: '重弹', rarity: 3, color: '#ff8f3d', desc: '伤害+30% 弹速-15%',
+        base: { dmgMul: 1.3, bulletSpeedMul: 0.85 } },
+      fast_ammo: { id: 'fast_ammo', slot: 'ammo', name: '高速弹', rarity: 2, color: '#4dc9ff', desc: '弹速+60%',
+        base: { bulletSpeedMul: 1.6 } },
+      double_ammo: { id: 'double_ammo', slot: 'ammo', name: '双发弹', rarity: 1, color: '#7ef29a', desc: '双弹齐射',
+        base: { pellet: 2 } },
+      flame_ammo: { id: 'flame_ammo', slot: 'ammo', name: '燃烧弹', rarity: 3, color: '#ff9f43', desc: '命中燃烧 8x2.5s',
+        base: { burnDps: 8, burnT: 2.5 } },
+      frost_ammo: { id: 'frost_ammo', slot: 'ammo', name: '冰霜弹', rarity: 3, color: '#4dc9ff', desc: '命中减速 45%',
+        base: { slowPct: 0.45, slowT: 2 } },
+      ricochet_ammo: { id: 'ricochet_ammo', slot: 'ammo', name: '跳弹', rarity: 1, color: '#cfd8ff', desc: '穿透+1 弹速+10%',
+        base: { pierce: 1, bulletSpeedMul: 1.1 } },
+      nova_ammo: { id: 'nova_ammo', slot: 'ammo', name: '新星弹', rarity: 2, color: '#b06cff', desc: '小型爆炸',
+        base: { explosionRadius: 70 } },
+      seeker_ammo: { id: 'seeker_ammo', slot: 'ammo', name: '制导弹', rarity: 4, color: '#35e0ff', desc: '自动追踪',
+        base: { homing: true, bulletSpeedMul: 0.85 } },
+      volt_ammo: { id: 'volt_ammo', slot: 'ammo', name: '高压弹', rarity: 4, color: '#ffd166', desc: '三连电链',
+        base: { chain: 3 } }
     },
     mod: {
       none_mod: { id: 'none_mod', slot: 'mod', name: '空配件槽', rarity: 0, color: '#888888', desc: '未安装',
@@ -130,7 +171,27 @@ const Game = (() => {
       freeze_mod: { id: 'freeze_mod', slot: 'mod', name: '冰冻核心', rarity: 2, color: '#4dc9ff', desc: '命中减速 30%',
         base: { slowPct: 0.3, slowT: 1.2 } },
       stabilizer_mod: { id: 'stabilizer_mod', slot: 'mod', name: '稳定器', rarity: 0, color: '#cfd8ff', desc: '散布x0.5，换弹-20%',
-        base: { spreadMul: 0.5, reloadMul: 0.8 } }
+        base: { spreadMul: 0.5, reloadMul: 0.8 } },
+      lifesteal_mod: { id: 'lifesteal_mod', slot: 'mod', name: '生命偷取', rarity: 3, color: '#ff4d5e', desc: '击杀回复 8 HP',
+        base: { vamp: 8 } },
+      rapid_mod: { id: 'rapid_mod', slot: 'mod', name: '快速换弹', rarity: 1, color: '#7ef29a', desc: '换弹-35%',
+        base: { reloadMul: 0.65 } },
+      bigmag_mod: { id: 'bigmag_mod', slot: 'mod', name: '扩容弹匣', rarity: 1, color: '#4dc9ff', desc: '弹容+12',
+        base: { magAdd: 12 } },
+      sharp_mod: { id: 'sharp_mod', slot: 'mod', name: '锋锐弹头', rarity: 2, color: '#cfd8ff', desc: '穿透+1 伤害+10%',
+        base: { pierce: 1, dmgMul: 1.1 } },
+      heavyhand_mod: { id: 'heavyhand_mod', slot: 'mod', name: '重手', rarity: 2, color: '#ff8f3d', desc: '伤害+25% 射速-15%',
+        base: { dmgMul: 1.25, fireRateMul: 0.85 } },
+      scanner_mod: { id: 'scanner_mod', slot: 'mod', name: '扫描模块', rarity: 3, color: '#b06cff', desc: '暴击率+20%',
+        base: { critChance: 0.2 } },
+      ghost_mod: { id: 'ghost_mod', slot: 'mod', name: '幽灵弹头', rarity: 2, color: '#35e0ff', desc: '散布-50% 弹速+15%',
+        base: { spreadMul: 0.5, bulletSpeedMul: 1.15 } },
+      fiery_mod: { id: 'fiery_mod', slot: 'mod', name: '烈焰核心', rarity: 3, color: '#ff9f43', desc: '命中燃烧 6x2s',
+        base: { burnDps: 6, burnT: 2 } },
+      icy_mod: { id: 'icy_mod', slot: 'mod', name: '寒冰核心', rarity: 3, color: '#4dc9ff', desc: '命中减速 30% 1.6s',
+        base: { slowPct: 0.3, slowT: 1.6 } },
+      venom_mod: { id: 'venom_mod', slot: 'mod', name: '毒液核心', rarity: 4, color: '#7ef29a', desc: '命中中毒 5x3s',
+        base: { burnDps: 5, burnT: 3 } }
     },
     armor: {
       light_armor: { id: 'light_armor', slot: 'armor', name: '轻型护甲', rarity: 0, color: '#7ef29a', desc: '护甲+25，移速+8%',
@@ -142,7 +203,27 @@ const Game = (() => {
       energy_armor: { id: 'energy_armor', slot: 'armor', name: '能量护甲', rarity: 3, color: '#ffb347', desc: '护甲+40，恢复×2',
         base: { armor: 40, regenMul: 2 } },
       regen_armor: { id: 'regen_armor', slot: 'armor', name: '再生护甲', rarity: 4, color: '#ff4d5e', desc: '护甲+60，每秒回1HP',
-        base: { armor: 60, hpRegen: 1 } }
+        base: { armor: 60, hpRegen: 1 } },
+      scout_armor: { id: 'scout_armor', slot: 'armor', name: '侦察甲', rarity: 0, color: '#7ef29a', desc: '护甲+30，移速+15%',
+        base: { armor: 30, speedMul: 1.15 } },
+      plated_armor: { id: 'plated_armor', slot: 'armor', name: '复合甲', rarity: 1, color: '#35e0ff', desc: '护甲+70，击退-40%',
+        base: { armor: 70, kbMul: 0.6 } },
+      abyss_armor: { id: 'abyss_armor', slot: 'armor', name: '深渊甲', rarity: 2, color: '#b06cff', desc: '护甲+90，受伤-8%',
+        base: { armor: 90, dmgMul: 0.92 } },
+      solar_armor: { id: 'solar_armor', slot: 'armor', name: '日耀甲', rarity: 3, color: '#ff8f3d', desc: '护甲+45，每秒回0.8HP',
+        base: { armor: 45, hpRegen: 0.8 } },
+      lunar_armor: { id: 'lunar_armor', slot: 'armor', name: '月影甲', rarity: 3, color: '#cfd8ff', desc: '护甲+35，移速+10% 受伤-3%',
+        base: { armor: 35, speedMul: 1.1, dmgMul: 0.97 } },
+      fortress_armor: { id: 'fortress_armor', slot: 'armor', name: '要塞甲', rarity: 4, color: '#ffd166', desc: '护甲+100，移速-8% 击退-60%',
+        base: { armor: 100, speedMul: 0.92, kbMul: 0.4 } },
+      spark_armor: { id: 'spark_armor', slot: 'armor', name: '电涌甲', rarity: 2, color: '#35e0ff', desc: '护甲+40，恢复×1.6',
+        base: { armor: 40, regenMul: 1.6 } },
+      thorn_armor: { id: 'thorn_armor', slot: 'armor', name: '荆棘甲', rarity: 1, color: '#7ef29a', desc: '护甲+50，受伤-5%',
+        base: { armor: 50, dmgMul: 0.95 } },
+      zero_armor: { id: 'zero_armor', slot: 'armor', name: '零重力甲', rarity: 4, color: '#4dc9ff', desc: '护甲+25，移速+25%',
+        base: { armor: 25, speedMul: 1.25 } },
+      guardian_armor: { id: 'guardian_armor', slot: 'armor', name: '守护甲', rarity: 2, color: '#b06cff', desc: '护甲+65，每秒回0.5HP 击退-30%',
+        base: { armor: 65, hpRegen: 0.5, kbMul: 0.7 } }
     }
   };
 
@@ -261,6 +342,11 @@ const Game = (() => {
     if (m.base.slowPct) { st.slowPct = m.base.slowPct; st.slowT = m.base.slowT; }
     if (m.base.spreadMul) st.spread *= m.base.spreadMul;
     if (m.base.reloadMul) st.reloadTime *= m.base.reloadMul;
+    if (a.base.dmgMul) st.damage *= a.base.dmgMul;
+    if (m.base.dmgMul) st.damage *= m.base.dmgMul;
+    if (m.base.magAdd) st.magSize += m.base.magAdd;
+    if (m.base.pierce) st.pierce += m.base.pierce;
+    if (m.base.bulletSpeedMul) st.bulletSpeed *= m.base.bulletSpeedMul;
 
     for (const s of ['body', 'ammo', 'mod']) {
       const part = gun.parts[s];
@@ -1319,7 +1405,8 @@ const Game = (() => {
       forgeNpc: null,
       fightNpc: false,
       poisonZones: [],
-      banner: { text: '', sub: '', t: 0, dur: 0 }
+      banner: { text: '', sub: '', t: 0, dur: 0 },
+      coinRain: null
     };
     const state = { screen: 'start', paused: false };
     const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null } };
@@ -1339,6 +1426,8 @@ const Game = (() => {
     let isTouchUI = false;
 
     function gun() { return world.guns[world.activeGun]; }
+    function sxToWx(sx) { return (sx - view.w / 2) / ZOOM + camera.x; }
+    function syToWy(sy) { return (sy - view.h / 2) / ZOOM + camera.y; }
     function accent() {
       return LAYER_ACCENTS[Math.min(world.layer, LAYER_ACCENTS.length) - 1] || '#35e0ff';
     }
@@ -1421,15 +1510,17 @@ const Game = (() => {
       audio.play('ui');
     }
 
-    function spawnPickup(kind, x, y, payload) {
+    function spawnPickup(kind, x, y, payload, speedMul, magnetDelay) {
       const a = Math.random() * Math.PI * 2;
-      const sp = 180 + Math.random() * 140;
+      const mul = speedMul || 1;
+      const sp = (180 + Math.random() * 140) * mul;
       const k = {
         kind, x, y,
         vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
         life: 30,
         part: kind === 'part' ? payload : null,
-        value: kind === 'coin' ? payload : 0
+        value: kind === 'coin' ? payload : 0,
+        magnetDelay: magnetDelay || 0
       };
       const obs = world.room.obstacles || [];
       for (const o of obs) {
@@ -2004,6 +2095,7 @@ const Game = (() => {
         fx.slowmo(0.3, 0.5);
         fx.hitStop(120);
         audio.play('roar');
+        startBossCoinRain(e.x, e.y);
         if (e.specialNpc) {
           setScreen('win');
         } else if (world.layer >= world.maxLayers) {
@@ -2215,6 +2307,7 @@ const Game = (() => {
       world.fightNpc = false;
       world.poisonZones.length = 0;
       world.banner = { text: '', sub: '', t: 0, dur: 0 };
+      world.coinRain = null;
       ui.chat = null;
       ui.forgeState = { mode: null, part: null };
       camera.x = ROOM_W / 2;
@@ -2640,8 +2733,8 @@ const Game = (() => {
       if (stickAim) {
         p.aimAngle = Math.atan2(gp.ay, gp.ax);
       } else {
-        const mx = input.mouse.x + camera.x - view.w / 2;
-        const my = input.mouse.y + camera.y - view.h / 2;
+        const mx = sxToWx(input.mouse.x);
+        const my = syToWy(input.mouse.y);
         const manualAngle = Math.atan2(my - p.y, mx - p.x);
         if (isTouchUI && input.touch.firing) {
           const target = assistAim(p, mx, my);
@@ -2716,8 +2809,8 @@ const Game = (() => {
       }
       if (((input.mouse.down && !input.mouse.downPrev && input.keys.has('Space')) || input.dashTap) &&
           dash.cd <= 0 && !dash.active && state.screen === 'playing') {
-        const mxw = input.mouse.x + camera.x - view.w / 2;
-        const myw = input.mouse.y + camera.y - view.h / 2;
+        const mxw = sxToWx(input.mouse.x);
+        const myw = syToWy(input.mouse.y);
         dash.angle = Math.atan2(myw - p.y, mxw - p.x);
         dash.active = true;
         dash.t = 0.13;
@@ -2759,6 +2852,19 @@ const Game = (() => {
       updateTracers(dt);
       updateFloaters(dt);
       updatePickups(dt);
+      if (world.coinRain && world.coinRain.active) {
+        const cr = world.coinRain;
+        cr.t -= dt;
+        if (cr.t <= 0) {
+          cr.t = 0.15;
+          const n = Math.min(cr.batchSize, cr.pending);
+          for (let i = 0; i < n; i++) {
+            spawnPickup('coin', cr.x + utils.rand(-30, 30), cr.y + utils.rand(-30, 30), 1, 1.5, 1);
+          }
+          cr.pending -= n;
+          if (cr.pending <= 0) cr.active = false;
+        }
+      }
       updateChains(dt);
       updateDashGhosts(dt);
       updateImpactMarks(dt);
@@ -2790,14 +2896,14 @@ const Game = (() => {
       }
 
       // 视角随准星走：目标点偏向鼠标方向 32%，并限制在房间可视范围内
-      const mxw = input.mouse.x + camera.x - view.w / 2;
-      const myw = input.mouse.y + camera.y - view.h / 2;
+      const mxw = sxToWx(input.mouse.x);
+      const myw = syToWy(input.mouse.y);
       const r = world.room;
-      const halfW = view.w / 2, halfH = view.h / 2;
-      const minX = r.w <= view.w ? r.w / 2 : halfW;
-      const maxX = r.w <= view.w ? r.w / 2 : r.w - halfW;
-      const minY = r.h <= view.h ? r.h / 2 : halfH;
-      const maxY = r.h <= view.h ? r.h / 2 : r.h - halfH;
+      const halfW = view.w / 2 / ZOOM, halfH = view.h / 2 / ZOOM;
+      const minX = halfW >= r.w / 2 ? r.w / 2 : halfW;
+      const maxX = halfW >= r.w / 2 ? r.w / 2 : r.w - halfW;
+      const minY = halfH >= r.h / 2 ? r.h / 2 : halfH;
+      const maxY = halfH >= r.h / 2 ? r.h / 2 : r.h - halfH;
       const tx = utils.clamp(p.x + (mxw - p.x) * 0.32, minX, maxX);
       const ty = utils.clamp(p.y + (myw - p.y) * 0.32, minY, maxY);
       camera.x += (tx - camera.x) * Math.min(1, 8 * dt);
@@ -3083,8 +3189,13 @@ const Game = (() => {
         k.life -= dt;
         if (k.life <= 0) { utils.swapRemove(world.pickups, i); continue; }
         const d = Math.hypot(p.x - k.x, p.y - k.y);
-        const magnet = (k.kind === 'coin' && d < 260) ||
-          (world.room && world.room.cleared && (k.kind !== 'part' || world.inventory.length < 10));
+        if (k.magnetDelay) k.magnetDelay -= dt;
+        const clearedM = !!(world.room && world.room.cleared);
+        const magnet = k.kind === 'part'
+          ? (clearedM && world.inventory.length < 10)
+          : k.kind === 'coin'
+            ? ((d < 260 || clearedM) && (k.magnetDelay || 0) <= 0)
+            : clearedM;
         if (magnet) {
           k.vx += (p.x - k.x) / (d || 1) * 700 * dt;
           k.vy += (p.y - k.y) / (d || 1) * 700 * dt;
@@ -3338,6 +3449,12 @@ const Game = (() => {
         const PRICES = [10, 20, 40, 80, 150];
         world.shopPrices = world.shopOffers.map(o => PRICES[o.rarity] || 40);
       }
+    }
+
+    function startBossCoinRain(x, y) {
+      const total = utils.randInt(40, 100);
+      world.coinRain = { pending: total, batchSize: Math.max(1, Math.round(total / 4)), t: 0, x, y, active: true };
+      audio.play('chest');
     }
 
     function checkRoomProgress() {
@@ -3729,7 +3846,9 @@ const Game = (() => {
       const p = world.player;
       const kickX = -Math.cos(p.aimAngle) * p.recoil * 9;
       const kickY = -Math.sin(p.aimAngle) * p.recoil * 9;
-      ctx.translate(view.w / 2 - camera.x + shx + kickX, view.h / 2 - camera.y + shy + kickY);
+      ctx.translate(view.w / 2 + shx, view.h / 2 + shy);
+      ctx.scale(ZOOM, ZOOM);
+      ctx.translate(-camera.x + kickX, -camera.y + kickY);
       drawRoom();
       drawScanline();
       drawDoors();

@@ -89,7 +89,7 @@ test('固定时间步与相机跟随', () => {
   game.world.player.x = 1000;
   game.world.player.y = 700;
   for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s = 60 步
-  assert.ok(game.camera.x > 900, '相机应跟随玩家（从 750 收敛到玩家附近）');
+  assert.ok(game.camera.x > 700 && game.camera.x < 800, '缩小视角后相机应在房间中心附近');
   assert.ok(Math.abs(game.world.time - 0.5) < 1e-9, '时间应推进 0.5s');
 });
 
@@ -245,12 +245,13 @@ test('橙射手敌人开火与玩家受伤', () => {
   assert.ok(game.world.player.hp < 100, '玩家应被敌弹击中掉血');
 });
 
-test('部件库齐全：枪身5 弹药6 配件6', () => {
+test('部件库齐全：枪身15 弹药16 配件16 护甲15', () => {
   const { Game } = makeGame();
-  assert.strictEqual(Object.keys(Game.PARTS.body).length, 5);
-  assert.strictEqual(Object.keys(Game.PARTS.ammo).length, 6);
+  assert.strictEqual(Object.keys(Game.PARTS.body).length, 15);
+  assert.strictEqual(Object.keys(Game.PARTS.ammo).length, 16);
   const modCount = Object.keys(Game.PARTS.mod).filter(id => id !== 'none_mod').length;
-  assert.strictEqual(modCount, 6);
+  assert.strictEqual(modCount, 16);
+  assert.strictEqual(Object.keys(Game.PARTS.armor).length, 15);
 });
 
 test('词条随稀有度增加且装备后影响数值', () => {
@@ -1234,4 +1235,28 @@ test('正常 Boss 房进入播放 Boss BGM', () => {
   const st = game.musicStatus();
   assert.strictEqual(st.song, 'boss');
   assert.ok(st.state === 'intro' || st.state === 'loop', 'Boss 音乐应处于引子或循环状态');
+});
+
+test('Boss 击败爆金币雨：40~100 枚分批飞溅且 1 秒后吸附', () => {
+  const { game } = makeGame();
+  game.beginRun();
+  game.enterRoom(game.world.map.boss.x, game.world.map.boss.y);
+  const boss = game.world.enemies[0];
+  boss.hp = 1;
+  game.damageEnemy(boss, 5, 0, {});
+  assert.ok(game.world.coinRain && game.world.coinRain.pending >= 40 && game.world.coinRain.pending <= 100,
+    '应爆出 40~100 金币，实际=' + (game.world.coinRain && game.world.coinRain.pending));
+  game.update(0.1); // 消耗 hit-stop
+  game.update(0.1);
+  game.update(0.1); // 触发第一批金币雨
+  const coins = game.world.pickups.filter(p => p.kind === 'coin');
+  const rainCoins = coins.filter(c => c.magnetDelay > 0);
+  assert.ok(rainCoins.length > 0, '应分批飞出金币');
+  assert.ok(rainCoins.every(c => c.magnetDelay > 0), '刚飞出时不应立即吸附');
+  assert.ok(Math.hypot(rainCoins[0].vx, rainCoins[0].vy) > 250, '飞溅速度应比正常高 50%');
+  const px = game.world.player.x, py = game.world.player.y;
+  const minBefore = Math.min(...game.world.pickups.filter(p => p.kind === 'coin').map(p => Math.hypot(p.x - px, p.y - py)));
+  for (let i = 0; i < 240; i++) game.update(1 / 120); // 2s（含 1s 延迟后吸附）
+  const minAfter = Math.min(...game.world.pickups.filter(p => p.kind === 'coin').map(p => Math.hypot(p.x - px, p.y - py)));
+  assert.ok(minAfter < minBefore - 15, '1 秒后金币应自动飞向玩家');
 });
