@@ -1093,7 +1093,7 @@ test('属性重组后词条强度为原值的 80%~150%', () => {
 
 test('手机端竖屏时锁定为横屏提示', () => {
   const { game } = makeGame();
-  game.debugSetView(400, 800);
+  game.debugSetView(400, 800, true); // 模拟真实触摸设备竖屏
   game.setScreen('playing');
   const t0 = game.world.time;
   game.update(1 / 60);
@@ -1259,4 +1259,14 @@ test('Boss 击败爆金币雨：40~100 枚分批飞溅且 1 秒后吸附', () =>
   for (let i = 0; i < 240; i++) game.update(1 / 120); // 2s（含 1s 延迟后吸附）
   const minAfter = Math.min(...game.world.pickups.filter(p => p.kind === 'coin').map(p => Math.hypot(p.x - px, p.y - py)));
   assert.ok(minAfter < minBefore - 15, '1 秒后金币应自动飞向玩家');
+});
+
+test('电脑端竖窄窗口不显示横屏锁定', () => {
+  const { game } = makeGame();
+  game.debugSetView(400, 800, false); // 非触摸设备
+  assert.ok(game.isTouchUI(), '窄屏仍有紧凑 UI');
+  game.setScreen('playing');
+  const t0 = game.world.time;
+  game.update(1 / 60);
+  assert.ok(game.world.time > t0, '非触摸设备竖屏不应锁定');
 });

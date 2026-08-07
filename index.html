@@ -2608,7 +2608,7 @@ const Game = (() => {
     // ---------- update ----------
     function update(dt) {
       input.frameHandled = false;
-      if (isTouchUI && view.h > view.w) return; // 手机端竖屏锁定，等待横屏
+      if (touchMode && view.h > view.w) return; // 手机端竖屏锁定，等待横屏
       if (input.tapQueue.size) {
         if (input.tapQueue.has('interact')) input.pressedSet.add('KeyE');
         if (input.tapQueue.has('panel')) input.pressedSet.add('KeyB');
@@ -3877,7 +3877,7 @@ const Game = (() => {
       drawPanel();
       drawChat();
       drawOverlay();
-      if (isTouchUI && view.h > view.w) {
+      if (touchMode && view.h > view.w) {
         ctx.fillStyle = 'rgba(4,8,14,0.92)';
         ctx.fillRect(0, 0, view.w, view.h);
         ctx.textAlign = 'center';
@@ -5182,9 +5182,10 @@ const Game = (() => {
         const st = bossMusic.getState();
         return { state: st, song: (st === 'intro' || st === 'loop') ? bossMusic.getSong() : null };
       },
-      debugSetView(w, h) {
+      debugSetView(w, h, forceTouch) {
         view.w = w;
         view.h = h;
+        if (forceTouch !== undefined) touchMode = !!forceTouch;
         isTouchUI = touchMode || view.w < 780;
       },
       startMap, enterRoom,
