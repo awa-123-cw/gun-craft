@@ -1788,3 +1788,184 @@ test('障碍物旋转后碰撞面跟随旋转（不再用未旋转的 AABB）', 
   game.update(1 / 120);
   assert.ok(o.hp < before, '旋转后形状内的子弹应命中');
 });
+
+// ===== PS5 DualSense 深度体验（WebHID + 标准降级）=====
+function makeHidContext() {
+  const ctx = buildContext();
+  const writes = [];
+  const device = {
+    vendorId: 0x054c, productId: 0x0ce6,
+    opened: false,
+    async open() { this.opened = true; },
+    async close() {},
+    async sendReport(id, data) { writes.push({ id, data: Array.from(data) }); }
+  };
+  ctx.navigator.hid = {
+    devices: [device],
+    async getDevices() { return [device]; },
+    async requestDevice() { return [device]; },
+    handlers: {},
+    addEventListener(type, fn) { this.handlers[type] = fn; }
+  };
+  return { ctx, writes, device };
+}
+async function makeHidGame() {
+  const { ctx, writes, device } = makeHidContext();
+  const Game = loadGame(ctx);
+  const game = Game.createGame(ctx.document.getElementById('game'));
+  const ok = await game.dualsense.connect();
+  if (!ok) throw new Error('WebHID connect 失败');
+  return { ctx, game, writes, device };
+}
+
+test('DualSense: 15 种枪身都有独立扳机手感', () => {
+  const { game } = makeGame();
+  const ids = ['pistol_body','smg_body','shotgun_body','sniper_body','heavy_body','burst3_body','revolver_body','gauss_body','volley_body','minigun_body','burst2_body','cannon_body','plasma_body','pump_body','drill_body'];
+  const sigs = new Set();
+  for (const id of ids) {
+    assert.ok(game.TRIGGER_FEEL[id], '缺少枪身手感: ' + id);
+    assert.strictEqual(typeof game.TRIGGER_FEEL[id].rest, 'function', id + ' 缺 rest');
+    assert.ok(game.TRIGGER_FEEL[id].firePulses && game.TRIGGER_FEEL[id].firePulses.length, id + ' 缺 firePulses');
+    assert.ok(game.TRIGGER_FEEL[id].rumblePulses && game.TRIGGER_FEEL[id].rumblePulses.length, id + ' 缺 rumblePulses');
+    sigs.add(Array.from(game.TRIGGER_FEEL[id].rest(0.5)).join(','));
+  }
+  assert.strictEqual(sigs.size, ids.length, '枪身 rest 块应互不相同');
+  assert.strictEqual(game.haptics.settings.vibration, 0.85);
+  assert.strictEqual(game.haptics.settings.trigger, true);
+});
+
+test('DualSense: 扳机效果块编码正确', () => {
+  const { game } = makeGame();
+  const blk = game.dualsense.blocks;
+  const fb = Array.from(blk.feedbackBlock(0, 1));
+  assert.strictEqual(fb[0], 0x21);
+  assert.strictEqual(fb[1], 0xff);
+  assert.strictEqual(fb[2], 0x03);
+  assert.deepStrictEqual(fb.slice(3, 7), [0, 0, 0, 0]);
+  const wb = Array.from(blk.weaponBlock(3, 7, 3));
+  assert.strictEqual(wb[0], 0x25);
+  assert.strictEqual(wb[1], 0x08);
+  assert.strictEqual(wb[2], 0x80);
+  assert.strictEqual(wb[3], 2);
+  const vb = Array.from(blk.vibrationBlock(2, 4, 28));
+  assert.strictEqual(vb[0], 0x26);
+  assert.strictEqual(vb[9], 28);
+  const off = Array.from(blk.offBlock());
+  assert.strictEqual(off[0], 0x05);
+  assert.ok(off.slice(1).every(v => v === 0));
+});
+
+test('DualSense: WebHID 连接并写入测试报告', async () => {
+  const { ctx, game, writes, device } = await makeHidGame();
+  assert.strictEqual(game.dualsense.channel(), 'hid');
+  assert.ok(device.opened, '设备应已 open');
+  assert.ok(writes.length >= 1, '应有测试报告写入');
+  assert.strictEqual(writes[0].id, 0x02);
+  assert.strictEqual(writes[0].data[0], 0xff);
+  assert.strictEqual(writes[0].data[1], 0x57);
+  assert.ok(Array.isArray(writes[0].data) && writes[0].data.length >= 47);
+});
+
+test('DualSense: 开火事件产生马达字节与 R2 脉冲块（HID）', async () => {
+  const { game, writes } = await makeHidGame();
+  game.haptics.fire('pistol_body');
+  game.haptics.frame(0.016);
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  const last = writes[writes.length - 1];
+  assert.ok(last.data[2] > 0, 'rumbleA 应大于 0，实际 ' + last.data[2]);
+  assert.ok(last.data[3] > 0, 'rumbleB 应大于 0');
+  assert.strictEqual(last.data[10], 0x21, 'R2 块应为 Feedback 模式');
+});
+
+test('DualSense: 无 WebHID 时降级到 vibrationActuator 标准通道', () => {
+  const ctx = buildContext();
+  const calls = [];
+  ctx.navigator.getGamepads = () => [{ vibrationActuator: { playEffect: (type, opts) => calls.push({ type, opts }) } }];
+  const Game = loadGame(ctx);
+  const game = Game.createGame(ctx.document.getElementById('game'));
+  game.haptics.event('hit');
+  assert.ok(calls.some(c => c.type === 'dual-rumble'), '应有 dual-rumble');
+  game.haptics.fire('shotgun_body');
+  assert.ok(calls.some(c => c.type === 'trigger-rumble'), '应有 trigger-rumble');
+  const trig = calls.find(c => c.type === 'trigger-rumble');
+  assert.strictEqual(trig.opts.rightTrigger, 1.0);
+});
+
+test('DualSense: 受击方向偏置 A/B 马达', () => {
+  const { game } = makeGame();
+  game.world.player.aimAngle = 0;
+  game.haptics.clear();
+  game.haptics.event('playerHit', { angle: -0.8 });
+  let st = game.haptics.state;
+  assert.ok(st.s > st.w, '来自左侧应 A 强：s=' + st.s + ' w=' + st.w);
+  game.haptics.clear();
+  game.haptics.event('playerHit', { angle: 0.8 });
+  st = game.haptics.state;
+  assert.ok(st.w > st.s, '来自右侧应 B 强：s=' + st.s + ' w=' + st.w);
+});
+
+test('DualSense: 手柄 L2/R2 映射正确（L2=aim，R2=trig 力度）', () => {
+  const ctx = buildContext();
+  const buttons = [];
+  for (let i = 0; i < 16; i++) buttons.push({ pressed: false, value: 0 });
+  const gp = { axes: [0, 0, 0, 0], buttons, connected: true };
+  ctx.navigator.getGamepads = () => [gp];
+  const Game = loadGame(ctx);
+  const game = Game.createGame(ctx.document.getElementById('game'));
+  buttons[6].pressed = true; buttons[6].value = 1;
+  buttons[7].value = 0.65;
+  game.pollGamepad();
+  assert.strictEqual(game.input.gp.aim, true);
+  assert.strictEqual(game.input.gp.trig, 0.65);
+});
+
+test('DualSense: 每帧按当前枪刷新 R2 阻力、L2 阻尼，松开归零', async () => {
+  const { game } = await makeHidGame();
+  game.input.gp = { trig: 0.3, aim: true, fire: false };
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  let st = game.dualsense.getState();
+  assert.strictEqual(Array.from(st.r2)[0], 0x21, '手枪 rest 为 Feedback');
+  assert.strictEqual(Array.from(st.l2)[0], 0x21, 'L2 按住有阻尼');
+  game.world.guns[0].parts.body.id = 'sniper_body';
+  game.input.gp.trig = 0.8;
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  st = game.dualsense.getState();
+  assert.deepStrictEqual(Array.from(st.r2), Array.from(game.TRIGGER_FEEL.sniper_body.rest(0.8)), '狙击二段重阻');
+  game.input.gp.trig = 0;
+  game.input.gp.aim = false;
+  game.dualsense.flush();
+  game.dualsense.frame(0.016);
+  st = game.dualsense.getState();
+  assert.strictEqual(Array.from(st.r2)[0], 0x05, 'R2 松开为 Off');
+  assert.strictEqual(Array.from(st.l2)[0], 0x05, 'L2 松开为 Off');
+});
+
+test('DualSense: 断开后自动重连', async () => {
+  const { ctx, game, device } = await makeHidGame();
+  ctx.navigator.hid.handlers.disconnect({ device });
+  assert.strictEqual(game.dualsense.channel(), 'std');
+  const ok = await game.dualsense.reconnect();
+  assert.ok(ok);
+  assert.strictEqual(game.dualsense.channel(), 'hid');
+});
+
+test('DualSense: 写节流 ≤60Hz 且字节不变不重复写', async () => {
+  const { game, writes } = await makeHidGame();
+  game.dualsense.flush();
+  const before = writes.length;
+  for (let i = 0; i < 100; i++) {
+    game.dualsense.setTrigger('r2', game.dualsense.blocks.feedbackBlock(5, 2));
+    game.dualsense.frame(0.016);
+  }
+  assert.ok(writes.length - before <= 2, '100 次帧刷新最多写 2 次，实际 ' + (writes.length - before));
+});
+
+test('DualSense: 泵动枪身上膛触发 Weapon 扳机脉冲', async () => {
+  const { game } = await makeHidGame();
+  game.haptics.event('reloadDone', { bodyId: 'pump_body' });
+  assert.ok(game.haptics.pulse.block, '泵动上膛应有扳机脉冲');
+  assert.strictEqual(Array.from(game.haptics.pulse.block)[0], 0x25);
+});

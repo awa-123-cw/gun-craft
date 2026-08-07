@@ -1475,7 +1475,7 @@ const Game = (() => {
       coinRain: null
     };
     const state = { screen: 'start', paused: false };
-    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null }, gpIndex: 0, chatGp: 0 };
+    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null }, gpIndex: 0, chatGp: 0, hapticsPanel: false };
     const camera = { x: world.player.x, y: world.player.y };
     const input = {
       keys: new Set(), pressedSet: new Set(),
@@ -2164,6 +2164,7 @@ const Game = (() => {
       if (o.frozenT) e.freezeT = o.frozenT;
       if (o.lifestealOnHit) world.player.hp = Math.min(world.player.maxHp, world.player.hp + o.lifestealOnHit);
       audio.play('hit');
+      haptics.event(crit ? 'crit' : 'hit');
       if (e.hp <= 0) {
         if (o.vamp) world.player.hp = Math.min(world.player.maxHp, world.player.hp + o.vamp);
         killEnemy(e);
@@ -2219,6 +2220,7 @@ const Game = (() => {
       fx.burst(e.x, e.y, e.color, 8);
       fx.hitStop(60);
       audio.play('kill');
+      haptics.event(e.kind === 'boss' ? 'boss' : 'kill');
       world.stats.kills++;
       updateCombo();
       maybeDrop(e);
@@ -2297,6 +2299,7 @@ const Game = (() => {
       fx.sparks(p.x, p.y, '#ff4d5e', 6);
       fx.floater(p.x, p.y - 20, '-' + dmg, 'normal');
       audio.play('hit');
+      haptics.event('playerHit', { angle: angle });
       if (p.hp <= 0) {
         p.hp = 0;
         if (world.fightNpc) restart();
@@ -2316,6 +2319,7 @@ const Game = (() => {
       }
       d *= (p.armorSpec ? p.armorSpec.dmgMul : 1);
       p.hp -= d;
+      if (d >= 1) haptics.event('playerHit');
       if (p.hp <= 0) {
         p.hp = 0;
         if (world.fightNpc) restart();
@@ -2394,6 +2398,8 @@ const Game = (() => {
       state.screen = name;
       state.paused = name === 'paused';
       if (name === 'dead' || name === 'start') stopBossMusic();
+      if (name === 'win') haptics.event('victory');
+      if (name === 'dead') haptics.event('death');
     }
 
     function resetState() {
@@ -2532,6 +2538,9 @@ const Game = (() => {
         return true;
       }
       if (state.screen !== 'playing') {
+        if (ui.hapticsPanel && state.screen === 'paused') {
+          if (hapticsPanelClick(mx, my)) return true;
+        }
         for (const b of overlayButtons()) {
           if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
             b.action();
@@ -2736,14 +2745,14 @@ const Game = (() => {
         ay: Math.abs(gp.axes[3]) > dead ? gp.axes[3] : 0,
         fire: btn(7), dash: btn(0), interact: btn(2), reload: btn(3),
         panel: btn(8), pause: btn(9), switchR: btn(5), switchL: btn(4),
-        cancel: btn(1), confirm: btn(0),
+        cancel: btn(1), confirm: btn(0), aim: btn(6), trig: (gp.buttons[7] && gp.buttons[7].value) || 0, trigL: (gp.buttons[6] && gp.buttons[6].value) || 0,
         navUp: btn(12), navDown: btn(13), navLeft: btn(14), navRight: btn(15)
       };
       input.gp = cur;
       // 手柄有实际输入（按键/摇杆）才视为手柄模式并隐藏光标；
       // 鼠标一动（onMouseMove 置 padInput=false）光标立即恢复
       if (cur.fire || cur.dash || cur.interact || cur.reload || cur.panel || cur.pause ||
-          cur.switchR || cur.switchL || cur.cancel || cur.navUp || cur.navDown || cur.navLeft || cur.navRight ||
+          cur.aim || cur.switchR || cur.switchL || cur.cancel || cur.navUp || cur.navDown || cur.navLeft || cur.navRight ||
           cur.lx !== 0 || cur.ly !== 0 || cur.ax !== 0 || cur.ay !== 0) {
         input.padInput = true;
         input.padLast = nowMs(); // 记录手柄最近输入时间
@@ -2779,6 +2788,7 @@ const Game = (() => {
         if (input.tapQueue.has('pause')) input.pressedSet.add('Escape');
         if (input.tapQueue.has('switchR') || input.tapQueue.has('switchL')) {
           world.activeGun = (world.activeGun + (input.tapQueue.has('switchR') ? 1 : -1) + 2) % 2;
+          haptics.event('switchGun');
         }
         if (input.tapQueue.has('reload')) {
           const g = gun();
@@ -2823,6 +2833,8 @@ const Game = (() => {
             uiClick(row.x + row.w / 2, row.y + row.h / 2);
           }
           if (input.tapQueue.has('cancel')) closePanel();
+        } else if (ui.hapticsPanel && state.screen === 'paused') {
+          hapticsNav(input.tapQueue);
         } else if (input.tapQueue.has('confirm') && state.screen !== 'playing') {
           const bs = overlayButtons();
           if (bs[0]) { bs[0].action(); input.dashTap = false; } // 开始/暂停/结算界面按确认键启动
@@ -2831,7 +2843,9 @@ const Game = (() => {
       }
       if (input.pressedSet.size) {
         if (input.pressedSet.has('Escape')) {
-          if (ui.panel !== 'none') {
+          if (ui.hapticsPanel) {
+            ui.hapticsPanel = false;
+          } else if (ui.panel !== 'none') {
             closePanel();
           } else if (state.screen === 'playing') {
             setScreen('paused');
@@ -2896,8 +2910,8 @@ const Game = (() => {
             }
           }
         }
-        if (input.pressedSet.has('Digit1')) world.activeGun = 0;
-        if (input.pressedSet.has('Digit2')) world.activeGun = 1;
+        if (input.pressedSet.has('Digit1')) { world.activeGun = 0; haptics.event('switchGun'); }
+        if (input.pressedSet.has('Digit2')) { world.activeGun = 1; haptics.event('switchGun'); }
         input.pressedSet.clear();
       }
       if (world.startNpc && world.startNpc.state === 'transform') {
@@ -2923,7 +2937,7 @@ const Game = (() => {
       if (fx.slowmoT > 0) {
         fx.slowmoT -= dt;
         dt *= fx.slowmoFactor;
-      } else if (input.keys.has('Space') && state.screen === 'playing' && !world.dash.active) {
+      } else if ((input.keys.has('Space') || (input.gp && input.gp.aim)) && state.screen === 'playing' && !world.dash.active) {
         dt *= 0.35; // 按住空格进入慢动作瞄准
       }
       const p = world.player;
@@ -2998,7 +3012,9 @@ const Game = (() => {
 
       // 瞬身：空格+左键向准星方向短距离滑步
       const dash = world.dash;
+      const dashPrevCd = dash.cd;
       dash.cd = Math.max(0, dash.cd - dt);
+      if (dashPrevCd > 0 && dash.cd <= 0) haptics.event('dashReady');
       if (dash.active) {
         dash.t -= dt;
         p.x += Math.cos(dash.angle) * 1400 * dt;
@@ -3041,6 +3057,7 @@ const Game = (() => {
         dash.cd = 3 * ((p.armorSpec && p.armorSpec.dashCdMul) || 1);
         p.invuln = 0.25;
         audio.play('dash');
+        haptics.event('dash', { angle: dash.angle });
       }
       input.dashTap = false;
       input.mouse.downPrev = input.mouse.down;
@@ -3061,6 +3078,7 @@ const Game = (() => {
         curRoom.waveT -= dt;
         if (curRoom.waveT <= 0) {
           curRoom.waveState = 'active';
+          haptics.event('wave');
           spawnWaveEnemies(curRoom, curRoom.waveCounts[curRoom.waveIndex], curRoom.waveSpawns);
           curRoom.waveSpawns = [];
           curRoom.waveIndex++;
@@ -3129,6 +3147,7 @@ const Game = (() => {
         if (world.lowhpT <= 0) {
           world.lowhpT = 0.85;
           audio.play('lowhp');
+          haptics.event('lowhp');
         }
       }
 
@@ -3229,6 +3248,7 @@ const Game = (() => {
       });
       p.recoil = Math.min(1, p.recoil + (GUN_RECOIL[g.parts.body.id] || 0.35) * (st.recoilMul || 1));
       audio.play(GUN_SOUNDS[g.parts.body.id] || 'pistol');
+      haptics.fire(g.parts.body.id);
     }
 
     function updateGun(dt) {
@@ -3236,6 +3256,7 @@ const Game = (() => {
       if (input.wheelDelta !== 0) {
         world.activeGun = (world.activeGun + (input.wheelDelta > 0 ? 1 : -1) + 2) % 2;
         input.wheelDelta = 0;
+        haptics.event('switchGun');
       }
 
       const g = gun();
@@ -3246,15 +3267,19 @@ const Game = (() => {
           g.reloading = false;
           g.mag = g.stats.magSize;
           audio.play('reload_done');
+          haptics.event('reloadDone', { bodyId: g.parts.body.id });
         }
       }
       if ((input.pressedSet.has('KeyR') || input.keys.has('KeyR')) && !g.reloading && g.mag < g.stats.magSize) {
         g.reloading = true;
         g.reloadT = g.stats.reloadTime;
+        haptics.event('reloadStart');
       }
       if (g.mag <= 0 && !g.reloading) { // 自动换弹
         g.reloading = true;
         g.reloadT = g.stats.reloadTime;
+        haptics.event('reloadStart');
+        if (input.mouse.down) haptics.event('dryfire');
       }
       if (input.mouse.down && !world.dash.active && !g.reloading && g.mag > 0 && g.cooldown <= 0) {
         g.cooldown = 1 / g.stats.fireRate;
@@ -3514,6 +3539,7 @@ const Game = (() => {
           if (k.kind === 'coin') {
             world.coins += k.value;
             audio.play('pickup');
+            haptics.event('coin');
           } else if (k.kind === 'medkit') {
             p.hp = Math.min(p.maxHp, p.hp + 25);
             fx.floater(p.x, p.y - 24, '+25', 'crit');
@@ -4021,6 +4047,7 @@ const Game = (() => {
       fx.shake(8);
       spawnAuthorBoss();
       audio.play('roar');
+      haptics.event('npcChallenge');
       startBossMusic('surprise');
     }
 
@@ -4241,6 +4268,7 @@ const Game = (() => {
               const idx = world.shopOffers.indexOf(row.part);
               if (idx >= 0) { world.shopOffers.splice(idx, 1); world.shopPrices.splice(idx, 1); }
               audio.play('buy');
+              haptics.event('buy');
               buildPanelRows();
             } else {
               audio.play('deny');
@@ -4251,6 +4279,7 @@ const Game = (() => {
             world.chestPart = null;
             if (world.chest) world.chest.opened = true;
             audio.play('chest');
+            haptics.event('buy');
             closePanel();
           } else if (row.action === 'enhanceMenu') {
             ui.forgeState = { mode: 'enhance', part: null };
@@ -4343,7 +4372,7 @@ const Game = (() => {
         ctx.fillText('旋转设备至横向', view.w / 2, view.h / 2 + 24);
       }
       drawLowHpVignette();
-      if (state.screen === 'playing' && input.keys.has('Space') && !world.dash.active) {
+      if (state.screen === 'playing' && (input.keys.has('Space') || (input.gp && input.gp.aim)) && !world.dash.active) {
         ctx.fillStyle = 'rgba(53, 224, 255, 0.06)';
         ctx.fillRect(0, 0, view.w, view.h);
       }
@@ -5529,9 +5558,15 @@ const Game = (() => {
       const list = [];
       if (state.screen === 'start') {
         list.push({ x: cx - bw / 2, y: view.h / 2 + 70, w: bw, h: bh, label: '开始游戏', action: beginRun });
+        list.push({
+          x: cx - bw / 2, y: view.h / 2 + 130, w: bw, h: bh,
+          label: dualsense.channel() === 'hid' ? 'PS5 增强已连接' : '连接 PS5 手柄（增强触觉）',
+          action: () => { dualsense.connect(); speakerSfx.init(); }
+        });
       } else if (state.screen === 'paused') {
         list.push({ x: cx - bw / 2, y: view.h / 2 + 10, w: bw, h: bh, label: '继续', action: () => setScreen('playing') });
         list.push({ x: cx - bw / 2, y: view.h / 2 + 70, w: bw, h: bh, label: '重新开始', action: restart });
+        list.push({ x: cx - bw / 2, y: view.h / 2 + 130, w: bw, h: bh, label: '手柄设置', action: () => { ui.hapticsPanel = true; HAPTIC_UI.sel = 0; audio.play('ui'); } });
       } else if (state.screen === 'dead' || state.screen === 'win') {
         list.push({
           x: cx - bw / 2, y: view.h / 2 + 80, w: bw, h: bh,
@@ -5568,6 +5603,10 @@ const Game = (() => {
         ctx.fillStyle = '#ffd166';
         ctx.font = 'bold ' + (mobile ? 28 : 38) + 'px Consolas, monospace';
         ctx.fillText('已暂停', view.w / 2, view.h / 2 - (mobile ? 40 : 50));
+      }
+      if (state.screen === 'paused' && ui.hapticsPanel) {
+        drawHapticsPanel();
+        return;
       } else if (state.screen === 'dead') {
         ctx.fillStyle = '#ff4d5e';
         ctx.font = 'bold ' + (mobile ? 30 : 44) + 'px Consolas, monospace';
@@ -5630,6 +5669,8 @@ const Game = (() => {
       acc += dt;
       while (acc >= STEP) { update(STEP); acc -= STEP; }
       input.pressedSet.clear();
+      haptics.frame(dt);
+      dualsense.frame(dt);
       if (bossMusic) bossMusic.update();
       render(acc / STEP);
       raf = requestAnimationFrame(frame);
@@ -5650,6 +5691,17 @@ const Game = (() => {
         window.addEventListener('resize', onResize);
       }
       touchMode = !!(('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0));
+      if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) {
+            haptics.pulse.block = null;
+            haptics.pulse.t = 0;
+            haptics.rumble(0, 0, 10);
+            dualsense.zero();
+          }
+        });
+
+      if (typeof navigator !== 'undefined' && navigator.hid) dualsense.reconnect();      }
       if (canvas.addEventListener) {
         const usePointer = typeof window !== 'undefined' && 'PointerEvent' in window;
         if (usePointer) {
@@ -5669,8 +5721,818 @@ const Game = (() => {
       raf = requestAnimationFrame(frame);
     }
 
+
+    // ============================================================
+    // PS5 DualSense 深度体验模块（设计文档 DESIGN_dualsense.md）
+    // 双通道：WebHID 增强（自适应扳机/马达/扬声器）+ 标准 Gamepad API 降级
+    // ============================================================
+    const HAPTICS_KEY = 'guncraft_haptics';
+    function loadHapticsSettings() {
+      const def = { vibration: 0.85, trigger: true, speaker: true, dashReady: true };
+      try {
+        const raw = localStorage.getItem(HAPTICS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          for (const k in def) if (parsed && typeof parsed[k] !== 'undefined') def[k] = parsed[k];
+        }
+      } catch (e) {}
+      return def;
+    }
+    function saveHapticsSettings() {
+      try { localStorage.setItem(HAPTICS_KEY, JSON.stringify(hapticsSettings)); } catch (e) {}
+    }
+    const hapticsSettings = loadHapticsSettings();
+    function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+    // ---- 扳机效果块编码（11 字节，DualSense 官方输出报告格式）----
+    function feedbackBlock(position, strength) {
+      const b = new Uint8Array(11);
+      b[0] = 0x21;
+      position = Math.max(0, Math.min(9, position | 0));
+      strength = Math.max(1, Math.min(8, strength | 0));
+      for (let i = position; i <= 9; i++) {
+        b[1 + (i >> 3)] |= 1 << (i & 7);
+        b[3 + (i >> 2)] |= ((strength - 1) & 7) << (3 * (i & 3));
+      }
+      return b;
+    }
+    function weaponBlock(start, end, strength) {
+      const b = new Uint8Array(11);
+      b[0] = 0x25;
+      start = Math.max(2, Math.min(7, start | 0));
+      end = Math.max(start + 1, Math.min(8, end | 0));
+      b[1] = (1 << start) & 0xff;
+      b[2] = (1 << end) & 0xff;
+      b[3] = Math.max(0, Math.min(7, (strength | 0) - 1));
+      return b;
+    }
+    function vibrationBlock(position, amplitude, frequency) {
+      const b = new Uint8Array(11);
+      b[0] = 0x26;
+      position = Math.max(0, Math.min(9, position | 0));
+      amplitude = Math.max(1, Math.min(8, amplitude | 0));
+      for (let i = position; i <= 9; i++) {
+        b[1 + (i >> 3)] |= 1 << (i & 7);
+        b[3 + (i >> 2)] |= ((amplitude - 1) & 7) << (3 * (i & 3));
+      }
+      b[9] = Math.max(1, Math.min(255, frequency | 0));
+      return b;
+    }
+    function offBlock() {
+      const b = new Uint8Array(11);
+      b[0] = 0x05;
+      return b;
+    }
+
+    // ---- 15 种枪身 R2 手感表（每种都有独一无二的扳机性格）----
+    const TRIGGER_FEEL = {
+      pistol_body: {
+        name: '标准枪身',
+        rest: function () { return feedbackBlock(5, 2); },
+        firePulses: [{ block: feedbackBlock(4, 3), ms: 80 }],
+        rumblePulses: [{ s: 0.30, w: 0.15, d: 80, delay: 0 }],
+        std: { trigger: 0.35, ms: 80 }
+      },
+      smg_body: {
+        name: '冲锋枪身',
+        rest: function (pull, firing) { return firing ? vibrationBlock(3, 3, 35) : feedbackBlock(3, 2); },
+        fireSustain: vibrationBlock(3, 3, 35),
+        firePulses: [{ block: vibrationBlock(3, 4, 45), ms: 60 }],
+        rumblePulses: [{ s: 0.25, w: 0.30, d: 120, delay: 0 }],
+        sustain: { s: 0.20, w: 0.24 },
+        std: { trigger: 0.30, ms: 60 }
+      },
+      shotgun_body: {
+        name: '霰弹枪身',
+        rest: function () { return weaponBlock(3, 7, 3); },
+        firePulses: [{ block: feedbackBlock(2, 8), ms: 350 }],
+        rumblePulses: [{ s: 0.85, w: 0.70, d: 350, delay: 0 }],
+        std: { trigger: 1.0, ms: 300 }
+      },
+      sniper_body: {
+        name: '狙击枪身',
+        rest: function (pull) { return pull < 0.5 ? feedbackBlock(2, 2) : feedbackBlock(5, 7); },
+        firePulses: [{ block: feedbackBlock(1, 8), ms: 450 }],
+        rumblePulses: [{ s: 0.90, w: 0.75, d: 450, delay: 0 }],
+        std: { trigger: 1.0, ms: 300 }
+      },
+      heavy_body: {
+        name: '重型枪身',
+        rest: function () { return feedbackBlock(2, 5); },
+        firePulses: [
+          { block: feedbackBlock(3, 6), ms: 120, delay: 0 },
+          { block: feedbackBlock(3, 6), ms: 120, delay: 90 }
+        ],
+        rumblePulses: [{ s: 0.60, w: 0.50, d: 250, delay: 0 }],
+        std: { trigger: 0.80, ms: 250 }
+      },
+      burst3_body: {
+        name: '三点火枪身',
+        rest: function () { return feedbackBlock(4, 2); },
+        firePulses: [
+          { block: feedbackBlock(4, 4), ms: 50, delay: 0 },
+          { block: feedbackBlock(4, 4), ms: 50, delay: 60 },
+          { block: feedbackBlock(4, 4), ms: 50, delay: 120 }
+        ],
+        rumblePulses: [
+          { s: 0.35, w: 0.20, d: 50, delay: 0 },
+          { s: 0.30, w: 0.16, d: 50, delay: 60 },
+          { s: 0.30, w: 0.16, d: 50, delay: 120 }
+        ],
+        std: { trigger: 0.40, ms: 50 }
+      },
+      revolver_body: {
+        name: '左轮枪身',
+        rest: function () { return feedbackBlock(5, 4); },
+        firePulses: [{ block: feedbackBlock(4, 6), ms: 130 }],
+        rumblePulses: [{ s: 0.60, w: 0.40, d: 130, delay: 0 }],
+        critMul: 1.5,
+        std: { trigger: 0.70, ms: 130 }
+      },
+      gauss_body: {
+        name: '高斯枪身',
+        rest: function (pull) {
+          if (pull < 0.34) return feedbackBlock(1, 2);
+          if (pull < 0.67) return feedbackBlock(3, 5);
+          return feedbackBlock(5, 8);
+        },
+        firePulses: [{ block: vibrationBlock(2, 5, 60), ms: 180 }],
+        rumblePulses: [{ s: 0.90, w: 0.80, d: 400, delay: 0 }],
+        std: { trigger: 1.0, ms: 300 }
+      },
+      volley_body: {
+        name: '齐射枪身',
+        rest: function () { return weaponBlock(4, 7, 3); },
+        firePulses: [{ block: feedbackBlock(3, 7), ms: 300 }],
+        rumblePulses: [{ s: 0.70, w: 0.60, d: 300, delay: 0 }],
+        std: { trigger: 0.90, ms: 300 }
+      },
+      minigun_body: {
+        name: '加特林枪身',
+        rest: function (pull, firing) { return firing ? vibrationBlock(2, 4, 28) : feedbackBlock(2, 3); },
+        fireSustain: vibrationBlock(2, 4, 28),
+        firePulses: [{ block: vibrationBlock(2, 5, 32), ms: 80 }],
+        rumblePulses: [{ s: 0.20, w: 0.50, d: 120, delay: 0 }],
+        sustain: { s: 0.16, w: 0.40 },
+        std: { trigger: 0.50, ms: 120 }
+      },
+      burst2_body: {
+        name: '二连冲枪身',
+        rest: function () { return feedbackBlock(3, 3); },
+        firePulses: [
+          { block: feedbackBlock(4, 4), ms: 60, delay: 0 },
+          { block: feedbackBlock(4, 4), ms: 60, delay: 70 }
+        ],
+        rumblePulses: [
+          { s: 0.30, w: 0.20, d: 60, delay: 0 },
+          { s: 0.26, w: 0.16, d: 60, delay: 70 }
+        ],
+        std: { trigger: 0.50, ms: 60 }
+      },
+      cannon_body: {
+        name: '手炮枪身',
+        rest: function () { return feedbackBlock(4, 6); },
+        firePulses: [{ block: feedbackBlock(2, 8), ms: 300 }],
+        rumblePulses: [{ s: 0.90, w: 0.85, d: 500, delay: 0 }],
+        std: { trigger: 1.0, ms: 300 }
+      },
+      plasma_body: {
+        name: '等离子枪身',
+        rest: function () { return vibrationBlock(2, 2, 18); },
+        firePulses: [{ block: vibrationBlock(2, 4, 30), ms: 150 }],
+        rumblePulses: [{ s: 0.40, w: 0.30, d: 150, delay: 0 }],
+        std: { trigger: 0.50, ms: 150 }
+      },
+      pump_body: {
+        name: '泵动枪身',
+        rest: function () { return feedbackBlock(5, 3); },
+        firePulses: [{ block: feedbackBlock(5, 5), ms: 100 }],
+        reloadPulses: [{ block: weaponBlock(3, 6, 4), ms: 140 }],
+        rumblePulses: [{ s: 0.50, w: 0.35, d: 120, delay: 0 }],
+        std: { trigger: 0.60, ms: 120 }
+      },
+      drill_body: {
+        name: '钻头枪身',
+        rest: function (pull, firing) { return firing ? vibrationBlock(2, 3, 24) : vibrationBlock(2, 2, 20); },
+        fireSustain: vibrationBlock(2, 3, 24),
+        firePulses: [{ block: vibrationBlock(2, 4, 28), ms: 120 }],
+        rumblePulses: [{ s: 0.45, w: 0.40, d: 120, delay: 0 }],
+        sustain: { s: 0.38, w: 0.33 },
+        std: { trigger: 0.45, ms: 120 }
+      }
+    };
+
+    // ---- 内置扬声器 SFX（USB 音频端点，扬声器声道 2/3；失败静默降级）----
+    const speakerSfx = (() => {
+      let actx = null, enabled = false, master = null, initPromise = null;
+      function init() {
+        if (initPromise) return initPromise;
+        initPromise = (async () => {
+          try {
+            if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+            let devs = [];
+            try { devs = await navigator.mediaDevices.enumerateDevices(); } catch (e) {}
+            const hasCtrl = devs.some(d => d.kind === 'audiooutput' && /wireless controller/i.test(d.label || ''));
+            if (!hasCtrl) {
+              try {
+                await navigator.mediaDevices.getUserMedia({ audio: true });
+                devs = await navigator.mediaDevices.enumerateDevices();
+              } catch (e) {}
+            }
+            const out = devs.find(d => d.kind === 'audiooutput' && /wireless controller/i.test(d.label || ''));
+            if (!out) return;
+            const AC = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) || (typeof AudioContext !== 'undefined' ? AudioContext : null);
+            if (!AC) return;
+            actx = new AC({ sinkId: out.deviceId });
+            actx.destination.channelCount = 4;
+            actx.destination.channelCountMode = 'explicit';
+            actx.destination.channelInterpretation = 'discrete';
+            master = actx.createGain();
+            master.gain.value = 0.14;
+            master.connect(actx.destination, 0, 2); // 扬声器声道 2/3；实机若反了改 0/1
+            enabled = true;
+            try { dualsense.setSpeaker(0x32, 0x04); } catch (e) {}
+          } catch (e) { enabled = false; }
+        })();
+        return initPromise;
+      }
+      function tone(f0, f1, dur, type, vol) {
+        if (!enabled || !master || !hapticsSettings.speaker) return;
+        try {
+          const a = actx;
+          const t0 = a.currentTime;
+          const o = a.createOscillator();
+          o.type = type || 'sine';
+          o.frequency.setValueAtTime(Math.max(1, f0), t0);
+          o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+          const g = a.createGain();
+          g.gain.setValueAtTime(vol, t0);
+          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+          o.connect(g);
+          g.connect(master);
+          o.start(t0);
+          o.stop(t0 + dur);
+        } catch (e) {}
+      }
+      function noise(dur, vol, cutoff) {
+        if (!enabled || !master || !hapticsSettings.speaker) return;
+        try {
+          const a = actx;
+          const sr = a.sampleRate || 44100;
+          const len = Math.max(1, Math.floor(sr * dur));
+          const buf = a.createBuffer(1, len, sr);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+          const src = a.createBufferSource();
+          src.buffer = buf;
+          const g = a.createGain();
+          g.gain.setValueAtTime(vol, a.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+          let node = src;
+          if (cutoff && a.createFilter) {
+            const f = a.createFilter();
+            f.frequency.setValueAtTime(cutoff, a.currentTime);
+            src.connect(f);
+            node = f;
+          }
+          node.connect(g);
+          g.connect(master);
+          src.start();
+        } catch (e) {}
+      }
+      function play(name) {
+        if (!enabled || !hapticsSettings.speaker) return;
+        try {
+          switch (name) {
+            case 'reloadStart': tone(520, 180, 0.04, 'square', 0.10); break;
+            case 'reloadDone': tone(300, 90, 0.06, 'square', 0.11); break;
+            case 'dryfire': tone(220, 140, 0.03, 'square', 0.06); break;
+            case 'dash': noise(0.12, 0.09, 1800); break;
+            case 'kill': tone(880, 1320, 0.08, 'sine', 0.10); break;
+            case 'lowhp': tone(90, 60, 0.09, 'sine', 0.11); break;
+            case 'boss': tone(55, 40, 0.15, 'sine', 0.13); break;
+            case 'connect': tone(700, 1000, 0.06, 'square', 0.09); break;
+          }
+        } catch (e) {}
+      }
+      return { init: init, play: play, enabled: function () { return enabled; }, inited: function () { return !!initPromise; } };
+    })();
+
+    // ---- WebHID 驱动（DualSense 0x0ce6 / DualSense Edge 0x0df2）----
+    const dualsense = (() => {
+      let device = null, mode = 'none', reportId = 0x02;
+      let lastWriteAt = 0, lastPayload = '';
+      let r2Block = offBlock(), l2Block = offBlock();
+      let rumbleA = 0, rumbleB = 0, speakerVol = 0x32, preamp = 0x04;
+      let reconnectT = 0, listenerAttached = false;
+      const isDS = d => !!(d && d.vendorId === 0x054c && (d.productId === 0x0ce6 || d.productId === 0x0df2));
+      function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+      function setTrigger(side, block) { if (side === 'r2') r2Block = block; else l2Block = block; }
+      function setRumble(a, b) { rumbleA = a | 0; rumbleB = b | 0; }
+      function setSpeaker(vol, pre) { speakerVol = vol | 0; preamp = pre | 0; }
+      function buildReport() {
+        const d = new Uint8Array(64);
+        d[0] = 0xFF; d[1] = 0x57;
+        d[2] = rumbleA; d[3] = rumbleB;
+        d[4] = 0x00; d[5] = speakerVol; d[6] = 0x00;
+        d[7] = 0x00; d[8] = 0x00; d[9] = 0x00;
+        d.set(r2Block, 10);
+        d.set(l2Block, 21);
+        d[36] = preamp;
+        d[38] = 0; d[41] = 0; d[42] = 0; d[43] = 0;
+        d[44] = 0; d[45] = 0; d[46] = 0;
+        return d;
+      }
+      function crc32(buf) {
+        let crc = 0xFFFFFFFF;
+        for (let i = 0; i < buf.length; i++) {
+          crc ^= buf[i];
+          for (let j = 0; j < 8; j++) {
+            crc = (crc >>> 1) ^ (0xEADA2D49 & -(crc & 1));
+          }
+        }
+        return (crc ^ 0xFFFFFFFF) >>> 0;
+      }
+      function buildBtReport() {
+        const d = new Uint8Array(78);
+        d[0] = 0x31; d[1] = 0x02;
+        d[2] = 0xFF; d[3] = 0x57;
+        d[4] = rumbleA; d[5] = rumbleB;
+        d[6] = 0x00; d[7] = speakerVol; d[8] = 0x00;
+        d[9] = 0x00; d[10] = 0x00; d[11] = 0x00;
+        d.set(r2Block, 12);
+        d.set(l2Block, 23);
+        d[38] = preamp;
+        const c = crc32(d.subarray(0, 74));
+        d[74] = c & 0xff; d[75] = (c >>> 8) & 0xff; d[76] = (c >>> 16) & 0xff; d[77] = (c >>> 24) & 0xff;
+        return d;
+      }
+      function fallback() { mode = 'std'; device = null; }
+      async function write() {
+        if (mode !== 'hid' || !device) return;
+        const nowT = now();
+        if (nowT - lastWriteAt < 1000 / 60) return;
+        const rep = reportId === 0x02 ? buildReport() : buildBtReport();
+        const key = Array.from(rep).join(',');
+        if (key === lastPayload) return;
+        lastWriteAt = nowT;
+        try {
+          await device.sendReport(reportId, rep);
+          lastPayload = key;
+        } catch (e) {
+          if (reportId === 0x02) {
+            try {
+              reportId = 0x31;
+              const bt = buildBtReport();
+              await device.sendReport(0x31, bt);
+              lastPayload = Array.from(bt).join(',');
+              lastWriteAt = nowT;
+            } catch (e2) { fallback(); }
+          } else { fallback(); }
+        }
+      }
+      async function openDevice(dev) {
+        if (!dev) return false;
+        try {
+          if (!dev.opened) await dev.open();
+          device = dev;
+          mode = 'hid';
+          reportId = 0x02;
+          lastWriteAt = 0; lastPayload = '';
+          try {
+            const rep = buildReport();
+            await device.sendReport(reportId, rep);
+            lastPayload = Array.from(rep).join(',');
+            lastWriteAt = now();
+          } catch (e) {
+            try {
+              reportId = 0x31;
+              const bt = buildBtReport();
+              await device.sendReport(0x31, bt);
+              lastPayload = Array.from(bt).join(',');
+              lastWriteAt = now();
+            } catch (e2) { fallback(); return false; }
+          }
+          attachListener();
+          return true;
+        } catch (e) { fallback(); return false; }
+      }
+      function attachListener() {
+        if (listenerAttached || typeof navigator === 'undefined' || !navigator.hid || !navigator.hid.addEventListener) return;
+        listenerAttached = true;
+        navigator.hid.addEventListener('disconnect', ev => {
+          if (!ev || !ev.device) return;
+          if (device && ev.device === device) {
+            device = null;
+            fallback();
+            reconnectT = 0.5;
+          }
+        });
+      }
+      async function connect() {
+        if (typeof navigator === 'undefined' || !navigator.hid) { mode = 'std'; return false; }
+        try {
+          let dev = null;
+          try {
+            const devs = await navigator.hid.getDevices();
+            dev = (devs || []).find(isDS) || null;
+          } catch (e) {}
+          if (!dev) {
+            try {
+              const picked = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x054c, productId: 0x0ce6 }, { vendorId: 0x054c, productId: 0x0df2 }] });
+              dev = (picked && picked[0]) || null;
+            } catch (e) {}
+          }
+          if (!dev) { mode = 'std'; return false; }
+          const ok = await openDevice(dev);
+          if (ok) {
+            speakerSfx.init();
+            haptics.event('connectOk');
+          }
+          return ok;
+        } catch (e) { fallback(); return false; }
+      }
+      async function reconnect() {
+        if (typeof navigator === 'undefined' || !navigator.hid || !navigator.hid.getDevices) return false;
+        try {
+          const devs = await navigator.hid.getDevices();
+          const dev = (devs || []).find(isDS);
+          if (dev) return await openDevice(dev);
+        } catch (e) {}
+        return false;
+      }
+      function frame(dt) {
+        if (mode !== 'hid') return;
+        if (reconnectT > 0) {
+          reconnectT -= dt;
+          if (reconnectT <= 0) {
+            reconnectT = 0;
+            reconnect();
+          }
+        }
+        const g = gun();
+        const feel = (g && TRIGGER_FEEL[g.parts.body.id]) || TRIGGER_FEEL.pistol_body;
+        const gp = input.gp;
+        const pull = gp ? clamp01(gp.trig || 0) : 0;
+        const firing = !!(input.mouse.down || (gp && gp.fire) || input.touch.firing);
+        let block = null;
+        const pulse = haptics.pulse;
+        if (pulse && pulse.block && pulse.t > 0) block = pulse.block;
+        else if (pull <= 0.001) block = offBlock();
+        else if (feel.fireSustain && firing) block = feel.fireSustain;
+        else block = feel.rest(pull, firing);
+        setTrigger('r2', block);
+        setTrigger('l2', (gp && gp.aim) ? feedbackBlock(4, 2) : offBlock());
+        write();
+      }
+      function zero() {
+        r2Block = offBlock(); l2Block = offBlock();
+        rumbleA = 0; rumbleB = 0;
+        lastPayload = '';
+        write();
+      }
+      function flush() { lastWriteAt = 0; lastPayload = ''; }
+      return {
+        connect: connect, reconnect: reconnect, frame: frame, zero: zero, flush: flush,
+        setTrigger: setTrigger, setRumble: setRumble, setSpeaker: setSpeaker,
+        channel: function () { return mode; },
+        blocks: { feedbackBlock: feedbackBlock, weaponBlock: weaponBlock, vibrationBlock: vibrationBlock, offBlock: offBlock },
+        getState: function () { return { mode: mode, r2: r2Block.slice(), l2: l2Block.slice(), rumbleA: rumbleA, rumbleB: rumbleB }; }
+      };
+    })();
+
+    // ---- 事件震动管理器（优先级合并 / 方向偏置 / 低血量心跳 / 标准通道降级）----
+    const haptics = (() => {
+      const pending = [];
+      const pulseBox = { block: null, t: 0 };
+      let rumbleState = { s: 0, w: 0, t: 0, pri: 0 };
+      let sustain = { active: false, lastAt: 0, s: 0, w: 0, trigger: 0.4 };
+      let sustainLevel = 0;
+      let stdSustainTimer = 0;
+      function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+      function normAng(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+      function stdPad() {
+        try {
+          if (typeof navigator === 'undefined' || !navigator.getGamepads) return null;
+          const gps = navigator.getGamepads();
+          return (gps && gps[0]) || null;
+        } catch (e) { return null; }
+      }
+      function stdRumble(s, w, dur) {
+        const gp = stdPad();
+        const act = gp && gp.vibrationActuator;
+        if (!act || !act.playEffect) return;
+        try { act.playEffect('dual-rumble', { duration: Math.max(20, dur | 0), strongMagnitude: clamp01(s), weakMagnitude: clamp01(w) }); } catch (e) {}
+      }
+      function stdTrigger(strength, dur) {
+        const gp = stdPad();
+        const act = gp && gp.vibrationActuator;
+        if (!act || !act.playEffect) return;
+        try { act.playEffect('trigger-rumble', { duration: Math.max(20, dur | 0), leftTrigger: 0, rightTrigger: clamp01(strength) }); } catch (e) {}
+      }
+      function rumbleForce(s, w, dur) {
+        rumbleState.s = clamp01(s); rumbleState.w = clamp01(w);
+        rumbleState.t = Math.max(20, dur | 0); rumbleState.pri = 0;
+        if (dualsense.channel() !== 'hid') stdRumble(s, w, dur);
+      }
+      function rumble(s, w, dur, opts) {
+        const o = opts || {};
+        const pri = o.priority || 0;
+        if (rumbleState.t > 0 && pri < rumbleState.pri) return;
+        const mult = clamp01(hapticsSettings.vibration || 0.85);
+        let s2 = clamp01(s * mult), w2 = clamp01(w * mult);
+        if (o.mul) { s2 = clamp01(s2 * o.mul); w2 = clamp01(w2 * o.mul); }
+        if (o.angle !== undefined) {
+          const rel = normAng(o.angle - world.player.aimAngle);
+          if (rel > 0) { s2 = clamp01(s2 * 0.7); w2 = clamp01(w2 * 1.25); }
+          else { s2 = clamp01(s2 * 1.25); w2 = clamp01(w2 * 0.7); }
+        }
+        rumbleState.s = Math.max(rumbleState.s, s2);
+        rumbleState.w = Math.max(rumbleState.w, w2);
+        rumbleState.t = Math.max(rumbleState.t, Math.max(20, dur | 0));
+        rumbleState.pri = Math.max(rumbleState.pri, pri);
+        if (dualsense.channel() !== 'hid') stdRumble(s2, w2, dur);
+      }
+      function clear() { rumbleState.s = 0; rumbleState.w = 0; rumbleState.t = 0; rumbleState.pri = 0; pending.length = 0; pulseBox.block = null; pulseBox.t = 0; }
+      function schedule(fn, delayMs) { pending.push({ fn: fn, t: delayMs }); }
+      function fire(bodyId) {
+        const feel = TRIGGER_FEEL[bodyId];
+        if (!feel) return;
+        const m = clamp01(hapticsSettings.vibration || 0.85);
+        if (feel.rumblePulses) {
+          for (const rp of feel.rumblePulses) {
+            const s = clamp01(rp.s * m), w = clamp01(rp.w * m), d = rp.d, delay = rp.delay || 0;
+            if (delay > 0) schedule(function () { rumbleForce(s, w, d); }, delay);
+            else rumbleForce(s, w, d);
+          }
+        }
+        if (feel.sustain) { sustain = { active: true, lastAt: now(), s: feel.sustain.s, w: feel.sustain.w, trigger: (feel.std && feel.std.trigger) || 0.4 }; }
+        if (feel.firePulses) {
+          for (const fp of feel.firePulses) {
+            const delay = fp.delay || 0;
+            if (delay > 0) schedule(function () { pulseBox.block = fp.block; pulseBox.t = fp.ms / 1000; }, delay);
+            else { pulseBox.block = fp.block; pulseBox.t = fp.ms / 1000; }
+          }
+        }
+        if (feel.std && dualsense.channel() !== 'hid') {
+          if (feel.std.trigger && feel.std.ms) stdTrigger(feel.std.trigger, feel.std.ms);
+        }
+      }
+      function pumpRack(bodyId) {
+        const feel = TRIGGER_FEEL[bodyId];
+        if (!feel || !feel.reloadPulses) return;
+        for (const rp of feel.reloadPulses) {
+          pulseBox.block = rp.block;
+          pulseBox.t = rp.ms / 1000;
+        }
+        if (feel.std && dualsense.channel() !== 'hid') stdTrigger(feel.std.trigger, 120);
+      }
+      function event(name, o) {
+        const opt = o || {};
+        switch (name) {
+          case 'hit': rumble(0.25, 0.10, 60, { priority: 1 }); break;
+          case 'crit': {
+            let mul = 1;
+            try {
+              const g = gun();
+              const feel = g && TRIGGER_FEEL[g.parts.body.id];
+              if (feel && feel.critMul) mul = feel.critMul;
+            } catch (e) {}
+            rumble(0.50, 0.30, 120, { priority: 2, mul: mul });
+            schedule(function () { rumbleForce(clamp01(0.30 * mul), clamp01(0.18 * mul), 90); }, 60);
+            break;
+          }
+          case 'kill':
+            rumble(0.70, 0.50, 200, { priority: 4 });
+            schedule(function () { rumbleForce(0.35, 0.25, 150); }, 110);
+            speakerSfx.play('kill');
+            break;
+          case 'boss':
+            rumble(0.90, 0.70, 600, { priority: 5 });
+            speakerSfx.play('boss');
+            break;
+          case 'playerHit':
+            rumble(0.80, 0.60, 350, { priority: 3, angle: opt.angle });
+            break;
+          case 'reloadStart':
+            rumble(0.15, 0.00, 50, { priority: 1 });
+            speakerSfx.play('reloadStart');
+            break;
+          case 'reloadDone':
+            rumble(0.40, 0.25, 160, { priority: 1 });
+            speakerSfx.play('reloadDone');
+            if (opt.bodyId) pumpRack(opt.bodyId);
+            break;
+          case 'dryfire':
+            rumble(0.08, 0.00, 30, { priority: 0 });
+            speakerSfx.play('dryfire');
+            break;
+          case 'dash':
+            rumble(0.50, 0.30, 200, { priority: 3, angle: opt.angle });
+            speakerSfx.play('dash');
+            break;
+          case 'dashReady':
+            if (hapticsSettings.dashReady) rumble(0.10, 0.00, 40, { priority: 0 });
+            break;
+          case 'lowhp':
+            rumble(0.45, 0.30, 180, { priority: 2 });
+            schedule(function () { rumbleForce(0.30, 0.20, 140); }, 260);
+            speakerSfx.play('lowhp');
+            break;
+          case 'coin': rumble(0.08, 0.05, 40, { priority: 0 }); break;
+          case 'buy': rumble(0.35, 0.20, 200, { priority: 2 }); break;
+          case 'switchGun': rumble(0.12, 0.00, 60, { priority: 0 }); break;
+          case 'wave':
+            rumble(0.40, 0.20, 150, { priority: 2 });
+            schedule(function () { rumbleForce(0.25, 0.12, 120); }, 140);
+            break;
+          case 'victory':
+            rumble(0.50, 0.30, 300, { priority: 2 });
+            schedule(function () { rumbleForce(0.60, 0.40, 300); }, 300);
+            schedule(function () { rumbleForce(0.70, 0.50, 300); }, 600);
+            break;
+          case 'death':
+            rumble(0.90, 0.80, 800, { priority: 5 });
+            schedule(function () { rumbleForce(0.50, 0.40, 400); }, 400);
+            break;
+          case 'npcChallenge':
+            rumble(0.90, 0.70, 500, { priority: 5 });
+            speakerSfx.play('boss');
+            break;
+          case 'connectOk':
+            rumble(0.50, 0.30, 200, { priority: 2 });
+            speakerSfx.play('connect');
+            break;
+        }
+      }
+      function frame(dt) {
+        if (rumbleState.t > 0) {
+          rumbleState.t -= dt * 1000;
+          if (rumbleState.t <= 0) { rumbleState.s = 0; rumbleState.w = 0; rumbleState.pri = 0; }
+          else { const k = Math.exp(-2.2 * dt); rumbleState.s *= k; rumbleState.w *= k; }
+        }
+        if (sustain.active) {
+          if (now() - sustain.lastAt > 120) sustain.active = false;
+        }
+        sustainLevel = sustain.active ? Math.min(1, sustainLevel + dt * 10) : Math.max(0, sustainLevel - dt * 8);
+        if (pulseBox.block) {
+          pulseBox.t -= dt;
+          if (pulseBox.t <= 0) { pulseBox.block = null; pulseBox.t = 0; }
+        }
+        for (let i = pending.length - 1; i >= 0; i--) {
+          pending[i].t -= dt * 1000;
+          if (pending[i].t <= 0) {
+            const fn = pending[i].fn;
+            pending.splice(i, 1);
+            try { fn(); } catch (e) {}
+          }
+        }
+        if (dualsense.channel() === 'hid') {
+          dualsense.setRumble(
+            Math.round(clamp01(rumbleState.s + sustainLevel * sustain.s) * 255),
+            Math.round(clamp01(rumbleState.w + sustainLevel * sustain.w) * 255)
+          );
+        } else if (sustain.active) {
+          stdSustainTimer -= dt;
+          if (stdSustainTimer <= 0) {
+            stdSustainTimer = 0.4;
+            stdRumble(clamp01(rumbleState.s + sustainLevel * sustain.s), clamp01(rumbleState.w + sustainLevel * sustain.w), 400);
+            stdTrigger(sustain.trigger, 300);
+          }
+        } else if (stdSustainTimer !== 0) {
+          stdSustainTimer = 0;
+        }
+      }
+      return {
+        event: event, fire: fire, frame: frame, rumble: rumble, schedule: schedule, clear: clear,
+        pulse: pulseBox,
+        get state() { return { s: rumbleState.s, w: rumbleState.w, t: rumbleState.t, pri: rumbleState.pri, sustainLevel: sustainLevel }; },
+        settings: hapticsSettings
+      };
+    })();
+
+    // ---- 手柄设置面板（暂停菜单）----
+    const HAPTIC_UI = { sel: 0 };
+    function hapticPanelBox() {
+      const mobile = isTouchUI;
+      const pw = Math.min(560, view.w - 40);
+      const ph = mobile ? 356 : 344;
+      return { pw: pw, ph: ph, px: view.w / 2 - pw / 2, py: view.h / 2 - ph / 2 };
+    }
+    function hapticRows() {
+      const box = hapticPanelBox();
+      const rows = [];
+      const y0 = box.py + 96;
+      const rowH = 32, gap = 8;
+      const mk = (label, y, action, key) => rows.push({ label: label, x: box.px + 16, y: y, w: box.pw - 32, h: rowH, action: action, key: key });
+      mk('震动强度   [ - ]   ' + Math.round(hapticsSettings.vibration * 100) + '%   [ + ]', y0, 'vib', 'vibration');
+      mk('自适应扳机   [ ' + (hapticsSettings.trigger ? '开' : '关') + ' ]', y0 + rowH + gap, 'toggle', 'trigger');
+      mk('手柄扬声器   [ ' + (hapticsSettings.speaker ? '开' : '关') + ' ]', y0 + (rowH + gap) * 2, 'toggle', 'speaker');
+      mk('冷却提示震动   [ ' + (hapticsSettings.dashReady ? '开' : '关') + ' ]', y0 + (rowH + gap) * 3, 'toggle', 'dashReady');
+      mk(dualsense.channel() === 'hid' ? 'PS5 增强已连接（点击重连）' : '连接 PS5 手柄（增强触觉）', y0 + (rowH + gap) * 4, 'connect', null);
+      mk('关闭', y0 + (rowH + gap) * 5, 'close', null);
+      return rows;
+    }
+    function drawHapticsPanel() {
+      const box = hapticPanelBox();
+      ctx.fillStyle = 'rgba(4, 8, 14, 0.6)';
+      ctx.fillRect(0, 0, view.w, view.h);
+      ctx.fillStyle = '#111827';
+      ctx.strokeStyle = '#35e0ff';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#35e0ff';
+      ctx.shadowBlur = 12;
+      ctx.fillRect(box.px, box.py, box.pw, box.ph);
+      ctx.shadowBlur = 0;
+      ctx.strokeRect(box.px, box.py, box.pw, box.ph);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#35e0ff';
+      ctx.font = 'bold 16px Consolas, monospace';
+      ctx.fillText('手柄体验设置', view.w / 2, box.py + 30);
+      ctx.font = '12px Consolas, monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText('震动强度 · 自适应扳机 · 扬声器', view.w / 2, box.py + 48);
+      ctx.strokeStyle = '#ff4d5e';
+      ctx.lineWidth = 2.5;
+      const cx = box.px + box.pw - 22, cy = box.py + 20;
+      ctx.beginPath();
+      ctx.moveTo(cx - 7, cy - 7); ctx.lineTo(cx + 7, cy + 7);
+      ctx.moveTo(cx + 7, cy - 7); ctx.lineTo(cx - 7, cy + 7);
+      ctx.stroke();
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.font = '12px Consolas, monospace';
+      const ch = dualsense.channel() === 'hid' ? '增强（WebHID 自适应扳机）' : dualsense.channel() === 'std' ? '标准震动（降级通道）' : '未连接手柄';
+      ctx.fillText('设备通道：' + ch, box.px + 16, box.py + 84);
+      const rows = hapticRows();
+      rows.forEach((row, idx) => {
+        const sel = input.padInput && idx === HAPTIC_UI.sel;
+        ctx.fillStyle = sel ? 'rgba(53, 224, 255, 0.16)' : 'rgba(30, 41, 59, 0.9)';
+        ctx.fillRect(row.x, row.y, row.w, row.h);
+        if (sel) {
+          ctx.strokeStyle = '#35e0ff';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(row.x, row.y, row.w, row.h);
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '13px Consolas, monospace';
+        ctx.fillText(row.label, row.x + 10, row.y + 22);
+      });
+      ctx.textAlign = 'left';
+    }
+    function hapticsPanelClick(x, y) {
+      const box = hapticPanelBox();
+      if (x < box.px || x > box.px + box.pw || y < box.py || y > box.py + box.ph) return false;
+      if (x >= box.px + box.pw - 40 && x <= box.px + box.pw - 4 && y >= box.py + 4 && y <= box.py + 36) {
+        ui.hapticsPanel = false;
+        audio.play('ui');
+        return true;
+      }
+      const rows = hapticRows();
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (x >= row.x && x <= row.x + row.w && y >= row.y && y <= row.y + row.h) {
+          HAPTIC_UI.sel = i;
+          if (row.action === 'vib') {
+            if (x < row.x + row.w / 2) hapticsSettings.vibration = Math.max(0, Math.round((hapticsSettings.vibration - 0.05) * 100) / 100);
+            else hapticsSettings.vibration = Math.min(1, Math.round((hapticsSettings.vibration + 0.05) * 100) / 100);
+          } else if (row.action === 'toggle') {
+            hapticsSettings[row.key] = !hapticsSettings[row.key];
+          } else if (row.action === 'connect') {
+            dualsense.connect();
+            speakerSfx.init();
+          } else if (row.action === 'close') {
+            ui.hapticsPanel = false;
+          }
+          saveHapticsSettings();
+          audio.play('ui');
+          return true;
+        }
+      }
+      return false;
+    }
+    function hapticsNav(tq) {
+      const rows = hapticRows();
+      const keys = ['vibration', 'trigger', 'speaker', 'dashReady'];
+      if (tq.has('navUp')) HAPTIC_UI.sel = Math.max(0, HAPTIC_UI.sel - 1);
+      if (tq.has('navDown')) HAPTIC_UI.sel = Math.min(rows.length - 1, HAPTIC_UI.sel + 1);
+      if (tq.has('navLeft') && HAPTIC_UI.sel === 0) hapticsSettings.vibration = Math.max(0, Math.round((hapticsSettings.vibration - 0.05) * 100) / 100);
+      if (tq.has('navRight') && HAPTIC_UI.sel === 0) hapticsSettings.vibration = Math.min(1, Math.round((hapticsSettings.vibration + 0.05) * 100) / 100);
+      if (tq.has('confirm')) {
+        if (HAPTIC_UI.sel === 0) { /* 强度用左右键调整 */ }
+        else if (HAPTIC_UI.sel <= 3) hapticsSettings[keys[HAPTIC_UI.sel]] = !hapticsSettings[keys[HAPTIC_UI.sel]];
+        else if (HAPTIC_UI.sel === 4) { dualsense.connect(); speakerSfx.init(); }
+        else if (HAPTIC_UI.sel === 5) ui.hapticsPanel = false;
+      }
+      if (tq.has('cancel')) ui.hapticsPanel = false;
+      saveHapticsSettings();
+      audio.play('ui');
+    }
+
+
     return {
       world, state, camera, input, fx, ui,
+      haptics, dualsense, speakerSfx, TRIGGER_FEEL,
       gun, rebuildGun,
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
