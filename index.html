@@ -2832,6 +2832,15 @@ const Game = (() => {
             const row = ui.items[ui.gpIndex];
             uiClick(row.x + row.w / 2, row.y + row.h / 2);
           }
+          if (input.tapQueue.has('interact') && ui.panel === 'parts' && ui.items[ui.gpIndex] && ui.items[ui.gpIndex].action === 'equip') {
+            const row = ui.items[ui.gpIndex];
+            if (row.denied) audio.play('deny');
+            else {
+              discardPart(row.part);
+              buildPanelRows();
+              if (!world.inventory.length) closePanel();
+            }
+          }
           if (input.tapQueue.has('cancel')) closePanel();
         } else if (ui.hapticsPanel && state.screen === 'paused') {
           hapticsNav(input.tapQueue);
@@ -5084,6 +5093,16 @@ const Game = (() => {
         ctx.strokeStyle = '#35e0ff';
         ctx.lineWidth = 2;
         ctx.strokeRect(sel.x - 2, sel.y - 2, sel.w + 4, sel.h + 4);
+        if (input.padInput && ui.panel === 'parts' && sel.action === 'equip') {
+          ctx.strokeStyle = '#ff4d5e';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(sel.discardX - 11, sel.discardY - 11, 22, 22);
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.font = '11px Consolas, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('叉=装备 · 方=丢弃 · 圈=关闭', view.w / 2, py + panelH - 12);
+          ctx.textAlign = 'left';
+        }
       }
       ctx.textAlign = 'left';
       ctx.restore();
@@ -5804,14 +5823,14 @@ const Game = (() => {
     const TRIGGER_FEEL = {
       pistol_body: {
         name: '标准枪身',
-        rest: function () { return feedbackBlock(4, 3); },
+        rest: function () { return feedbackBlock(4, 5); },
         firePulses: [{ block: feedbackBlock(4, 3), ms: 80 }],
         rumblePulses: [{ s: 0.30, w: 0.15, d: 80, delay: 0 }],
         std: { trigger: 0.35, ms: 80 }
       },
       smg_body: {
         name: '冲锋枪身',
-        rest: function (pull, firing) { return firing ? vibrationBlock(3, 3, 35) : feedbackBlock(3, 3); },
+        rest: function (pull, firing) { return firing ? vibrationBlock(3, 3, 35) : feedbackBlock(3, 4); },
         fireSustain: vibrationBlock(3, 3, 35),
         firePulses: [{ block: vibrationBlock(3, 4, 45), ms: 60 }],
         rumblePulses: [{ s: 0.25, w: 0.30, d: 120, delay: 0 }],
@@ -5820,7 +5839,7 @@ const Game = (() => {
       },
       shotgun_body: {
         name: '霰弹枪身',
-        rest: function () { return weaponBlock(3, 7, 3); },
+        rest: function () { return weaponBlock(2, 8, 4); },
         firePulses: [{ block: feedbackBlock(2, 8), ms: 350 }],
         rumblePulses: [{ s: 0.85, w: 0.70, d: 350, delay: 0 }],
         std: { trigger: 1.0, ms: 300 }
@@ -6040,7 +6059,7 @@ const Game = (() => {
       let lastWriteAt = 0, lastPayload = '';
       let r2Block = offBlock(), l2Block = offBlock();
       let rumbleA = 0, rumbleB = 0, speakerVol = 0x50, preamp = 0x04;
-      let reconnectT = 0, listenerAttached = false;
+      let reconnectT = 0, listenerAttached = false, lastErr = '', testSeq = null, testT = 0;
       const isDS = d => !!(d && d.vendorId === 0x054c && (d.productId === 0x0ce6 || d.productId === 0x0df2));
       function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
       function setTrigger(side, block) { if (side === 'r2') r2Block = block; else l2Block = block; }
@@ -6103,6 +6122,7 @@ const Game = (() => {
           await device.sendReport(reportId, rep);
           lastPayload = key;
         } catch (e) {
+          lastErr = 'USB 报告写入失败: ' + ((e && e.message) || e);
           if (reportId === 0x02) {
             try {
               reportId = 0x31;
@@ -6110,7 +6130,8 @@ const Game = (() => {
               await device.sendReport(0x31, bt);
               lastPayload = Array.from(bt).join(',');
               lastWriteAt = nowT;
-            } catch (e2) { fallback(); }
+              lastErr = '';
+            } catch (e2) { lastErr = '蓝牙报告写入失败: ' + ((e2 && e2.message) || e2); fallback(); }
           } else { fallback(); }
         }
       }
@@ -6121,6 +6142,7 @@ const Game = (() => {
           device = dev;
           mode = 'hid';
           reportId = 0x02;
+          lastErr = '';
           lastWriteAt = 0; lastPayload = '';
           try {
             const rep = buildReport();
@@ -6128,13 +6150,15 @@ const Game = (() => {
             lastPayload = Array.from(rep).join(',');
             lastWriteAt = now();
           } catch (e) {
+            lastErr = 'USB 初始报告失败: ' + ((e && e.message) || e);
             try {
               reportId = 0x31;
               const bt = buildBtReport();
               await device.sendReport(0x31, bt);
               lastPayload = Array.from(bt).join(',');
               lastWriteAt = now();
-            } catch (e2) { fallback(); return false; }
+              lastErr = '';
+            } catch (e2) { lastErr = '蓝牙初始报告失败: ' + ((e2 && e2.message) || e2); fallback(); return false; }
           }
           attachListener();
           return true;
@@ -6184,6 +6208,17 @@ const Game = (() => {
         } catch (e) {}
         return false;
       }
+      function startTriggerTest() {
+        if (mode !== 'hid') return;
+        testSeq = [
+          { block: feedbackBlock(0, 8), ms: 1200, label: '阻力' },
+          { block: weaponBlock(2, 8, 8), ms: 1200, label: '段落' },
+          { block: vibrationBlock(0, 8, 30), ms: 1200, label: '扳机振动' }
+        ];
+        testT = testSeq[0].ms / 1000;
+        setTrigger('r2', testSeq[0].block);
+        write();
+      }
       function frame(dt) {
         if (mode !== 'hid') return;
         if (reconnectT > 0) {
@@ -6192,6 +6227,16 @@ const Game = (() => {
             reconnectT = 0;
             reconnect();
           }
+        }
+        if (testSeq) {
+          testT -= dt;
+          if (testT <= 0) {
+            testSeq.shift();
+            if (testSeq.length) { testT = testSeq[0].ms / 1000; setTrigger('r2', testSeq[0].block); }
+            else { setTrigger('r2', offBlock()); testSeq = null; }
+          }
+          write();
+          return;
         }
         const g = gun();
         const feel = (g && TRIGGER_FEEL[g.parts.body.id]) || TRIGGER_FEEL.pistol_body;
@@ -6219,6 +6264,9 @@ const Game = (() => {
         connect: connect, reconnect: reconnect, frame: frame, zero: zero, flush: flush,
         setTrigger: setTrigger, setRumble: setRumble, setSpeaker: setSpeaker,
         channel: function () { return mode; },
+        startTriggerTest: startTriggerTest,
+        getTest: function () { return testSeq ? { label: testSeq[0].label, t: testT } : null; },
+        lastError: function () { return lastErr; },
         blocks: { feedbackBlock: feedbackBlock, weaponBlock: weaponBlock, vibrationBlock: vibrationBlock, offBlock: offBlock },
         btChecksum: crc32,
         getState: function () { return { mode: mode, r2: r2Block.slice(), l2: l2Block.slice(), rumbleA: rumbleA, rumbleB: rumbleB }; }
@@ -6440,21 +6488,22 @@ const Game = (() => {
     function hapticPanelBox() {
       const mobile = isTouchUI;
       const pw = Math.min(560, view.w - 40);
-      const ph = mobile ? 356 : 344;
+      const ph = mobile ? 404 : 392;
       return { pw: pw, ph: ph, px: view.w / 2 - pw / 2, py: view.h / 2 - ph / 2 };
     }
     function hapticRows() {
       const box = hapticPanelBox();
       const rows = [];
-      const y0 = box.py + 96;
-      const rowH = 32, gap = 8;
+      const y0 = box.py + 118;
+      const rowH = 30, gap = 6;
       const mk = (label, y, action, key) => rows.push({ label: label, x: box.px + 16, y: y, w: box.pw - 32, h: rowH, action: action, key: key });
       mk('震动强度   [ - ]   ' + Math.round(hapticsSettings.vibration * 100) + '%   [ + ]', y0, 'vib', 'vibration');
       mk('自适应扳机   [ ' + (hapticsSettings.trigger ? '开' : '关') + ' ]', y0 + rowH + gap, 'toggle', 'trigger');
       mk('手柄扬声器   [ ' + (hapticsSettings.speaker ? '开' : '关') + ' ]', y0 + (rowH + gap) * 2, 'toggle', 'speaker');
       mk('冷却提示震动   [ ' + (hapticsSettings.dashReady ? '开' : '关') + ' ]', y0 + (rowH + gap) * 3, 'toggle', 'dashReady');
       mk(dualsense.channel() === 'hid' ? 'PS5 增强已连接（点击重连）' : '连接 PS5 手柄（增强触觉）', y0 + (rowH + gap) * 4, 'connect', null);
-      mk('关闭', y0 + (rowH + gap) * 5, 'close', null);
+      mk('扳机自检（阻力 → 段落 → 扳机振动）', y0 + (rowH + gap) * 5, 'test', null);
+      mk('关闭', y0 + (rowH + gap) * 6, 'close', null);
       return rows;
     }
     function drawHapticsPanel() {
@@ -6488,6 +6537,18 @@ const Game = (() => {
       ctx.font = '12px Consolas, monospace';
       const ch = dualsense.channel() === 'hid' ? '增强（WebHID 自适应扳机）' : dualsense.channel() === 'std' ? '标准震动（降级通道）' : '未连接手柄';
       ctx.fillText('设备通道：' + ch, box.px + 16, box.py + 84);
+      const testNow = dualsense.getTest();
+      if (testNow) {
+        ctx.fillStyle = '#7ef29a';
+        ctx.font = '11px Consolas, monospace';
+        ctx.fillText('自检中：' + testNow.label + '（' + Math.max(0, testNow.t).toFixed(1) + 's，拉动 R2 感受）', box.px + 16, box.py + 102);
+      }
+      const lerr = dualsense.lastError();
+      if (dualsense.channel() === 'std' && lerr) {
+        ctx.fillStyle = '#ff4d5e';
+        ctx.font = '11px Consolas, monospace';
+        ctx.fillText('降级原因：' + lerr, box.px + 16, box.py + 116);
+      }
       const rows = hapticRows();
       rows.forEach((row, idx) => {
         const sel = input.padInput && idx === HAPTIC_UI.sel;
@@ -6525,6 +6586,8 @@ const Game = (() => {
           } else if (row.action === 'connect') {
             dualsense.connect();
             speakerSfx.init();
+          } else if (row.action === 'test') {
+            dualsense.startTriggerTest();
           } else if (row.action === 'close') {
             ui.hapticsPanel = false;
           }
@@ -6546,7 +6609,8 @@ const Game = (() => {
         if (HAPTIC_UI.sel === 0) { /* 强度用左右键调整 */ }
         else if (HAPTIC_UI.sel <= 3) hapticsSettings[keys[HAPTIC_UI.sel]] = !hapticsSettings[keys[HAPTIC_UI.sel]];
         else if (HAPTIC_UI.sel === 4) { dualsense.connect(); speakerSfx.init(); }
-        else if (HAPTIC_UI.sel === 5) ui.hapticsPanel = false;
+        else if (HAPTIC_UI.sel === 5) { dualsense.startTriggerTest(); }
+        else if (HAPTIC_UI.sel === 6) ui.hapticsPanel = false;
       }
       if (tq.has('cancel')) ui.hapticsPanel = false;
       saveHapticsSettings();

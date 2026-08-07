@@ -136,9 +136,9 @@ block[10] = 0
 ### 6.3 15 种枪身 R2 手感表
 | 枪身 | 常驻扳机（R2） | 开火反馈 | 开火马达 | 手感关键词 |
 |---|---|---|---|---|
-| 标准枪身 | Feedback pos4 str3 | Feedback pos4 str3，短 | A0.30 B0.15 80ms | 干脆轻快 |
-| 冲锋枪身 | Feedback pos3 str3；开火时 Vibration pos3 amp3 freq35 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
-| 霰弹枪身 | Weapon 3→7 str3 | Feedback pos2 str8 | A0.85 B0.70 350ms | 沉重后坐 |
+| 标准枪身 | Feedback pos4 str5 | Feedback pos4 str5，短 | A0.30 B0.15 80ms | 干脆轻快 |
+| 冲锋枪身 | Feedback pos3 str4；开火时 Vibration pos3 amp3 freq35 | Vibration 短促 | A0.25 B0.30 120ms 持续 | 绵密压制 |
+| 霰弹枪身 | Weapon 2→8 str4 | Feedback pos2 str8 | A0.85 B0.70 350ms | 沉重后坐 |
 | 狙击枪身 | 二段：pull<50% Feedback pos2 str2；≥50% Feedback pos5 str7 | Feedback pos1 str8 | A0.90 B0.75 450ms | 精密二段 |
 | 重型枪身 | Feedback pos2 str5 | 双脉冲 Feedback pos3 str6（90ms 间隔） | A0.60 B0.50 250ms | 厚重压制 |
 | 三点火枪身 | Feedback pos4 str2 | 三连脉冲 Feedback pos4 str4（60ms 间隔） | A0.35×3 各 50ms | 三连节拍 |
@@ -213,3 +213,9 @@ block[10] = 0
 - 蓝牙报告：payload 去掉报告 ID 字节（0x31 描述符 77 字节）；CRC 算法修正为 DualSense 专用校验（init 0xEADA2D49 + 标准 CRC32 表 0xEDB88320，无最终异或，覆盖含报告 ID 的前 74 字节）。
 - 扳机效果块力度位打包修正为 uint32 跨字节累加（与 dualsense-ts 官方编码一致）：原实现按字节直接位移，力度≥2 时多数区被清零，等于无阻力。
 - 标准枪身/冲锋枪身常驻阻力由强度 2 提到 3（二连冲保持 3/2 以维持 15 枪 rest 块唯一），确保首次上手即可明确感知。
+
+## 十三、实机修复记录 v1.2（2026-08-08）
+- 手柄背包界面新增"方键=丢弃选中部件"（与鼠标红叉同规则，已装备同类仍拒绝），选中行红叉高亮 + 底部提示条；叉键装备、圈键关闭不变。
+- 手柄设置面板新增"扳机自检"：依次发送 阻力(feedback 0/8) → 段落(weapon 2-8/8) → 扳机振动(vibration 0/8/30Hz)，各 1.2s，可直接验证硬件链路。
+- 降级诊断：WebHID 通道若写入失败，面板显示具体降级原因（USB/蓝牙初始报告或写入失败信息）。
+- 默认手感强化：标准枪身 Feedback 4/3→4/5、冲锋 3/3→3/4、霰弹 Weapon 3→7/3→2→8/4，确保首次上手即可明确感知阻力和段落。

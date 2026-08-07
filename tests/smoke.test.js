@@ -2022,8 +2022,53 @@ test('DualSense: 标准枪身/冲锋枪身默认阻力明显可感知', () => {
   const { game } = makeGame();
   const pistol = Array.from(game.TRIGGER_FEEL.pistol_body.rest(0.6));
   const smg = Array.from(game.TRIGGER_FEEL.smg_body.rest(0.6, false));
-  // feedback(4,3)：10 区活动位图 + 3bit/区力度（uint32 跨字节），参考 dualsense-ts 编码
-  assert.deepStrictEqual(pistol, [0x21, 240, 3, 0, 32, 73, 18, 0, 0, 0, 0], '标准枪身 feedback(4,3)');
-  assert.deepStrictEqual(smg, [0x21, 248, 3, 0, 36, 73, 18, 0, 0, 0, 0], '冲锋枪身 feedback(3,3)');
+  // 10 区活动位图 + 3bit/区力度（uint32 跨字节），参考 dualsense-ts 编码
+  assert.deepStrictEqual(pistol, [0x21, 240, 3, 0, 64, 146, 36, 0, 0, 0, 0], '标准枪身 feedback(4,5)');
+  assert.deepStrictEqual(smg, [0x21, 248, 3, 0, 182, 109, 27, 0, 0, 0, 0], '冲锋枪身 feedback(3,4)');
+});
+
+
+test('手柄背包面板：方键丢弃选中部件（叉键装备不变）', () => {
+  const { game, Game } = makeGame();
+  game.setScreen('playing');
+  let part = Game.partsEngine.rollPart();
+  while (part.slot !== 'body' && part.slot !== 'ammo') part = Game.partsEngine.rollPart(); // 枪身/弹药槽必有已装备件（none_mod 不算）
+  const keep = Game.partsEngine.rollPart();
+  game.world.inventory.push(part, keep);
+  game.openPanel('parts');
+  game.ui.gpIndex = 0;
+  const before = game.world.inventory.length;
+  game.input.tapQueue.add('interact'); // PS5 方键
+  game.update(1 / 120);
+  assert.strictEqual(game.world.inventory.length, before - 1, '方键应丢弃选中的部件');
+  assert.ok(!game.world.inventory.includes(part), '被丢弃的部件应不在背包');
+  assert.ok(game.world.inventory.includes(keep), '其他部件不受影响');
+  // 已装备同类部件时方键应拒绝丢弃
+  const equipped = game.gun().parts[part.slot];
+  const dup = JSON.parse(JSON.stringify(equipped));
+  dup.id = equipped.id; // 与已装备件同 id → row.denied
+  game.world.inventory.push(dup);
+  game.openPanel('parts');
+  const deniedRow = game.ui.items.find(r => r.part === dup);
+  game.ui.gpIndex = game.ui.items.indexOf(deniedRow);
+  const n = game.world.inventory.length;
+  game.input.tapQueue.add('interact');
+  game.update(1 / 120);
+  assert.strictEqual(game.world.inventory.length, n, '已装备同类应拒绝丢弃');
+});
+
+test('DualSense: 扳机自检依次发送 阻力→段落→扳机振动→Off', async () => {
+  const { game, writes } = await makeHidGame();
+  const modeAt = () => writes[writes.length - 1].data[10];
+  game.dualsense.startTriggerTest();
+  game.dualsense.flush(); game.dualsense.frame(0.2);
+  assert.strictEqual(modeAt(), 0x21, '阶段1 Feedback(阻力)');
+  game.dualsense.flush(); game.dualsense.frame(1.1); // 累计 1.3s
+  assert.strictEqual(modeAt(), 0x25, '阶段2 Weapon(段落)');
+  game.dualsense.flush(); game.dualsense.frame(1.3);
+  assert.strictEqual(modeAt(), 0x26, '阶段3 Vibration(扳机振动)');
+  game.dualsense.flush(); game.dualsense.frame(1.3);
+  assert.strictEqual(modeAt(), 0x05, '结束后恢复 Off');
+  assert.strictEqual(game.dualsense.getTest(), null, '自检状态应清除');
 });
 
