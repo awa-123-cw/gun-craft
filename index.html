@@ -1346,7 +1346,10 @@ const Game = (() => {
             }
           }
           world.enemies.length = 0;
-          world.portal = { x: ROOM_W / 2, y: ROOM_H / 2, t: 0, active: false };
+          world.portal = {
+            x: ROOM_W / 2, y: ROOM_H / 2, t: 0, active: false,
+            roomX: world.mapInfo.roomPos.x, roomY: world.mapInfo.roomPos.y
+          };
           audio.play('door');
         }
       }
@@ -1605,25 +1608,26 @@ const Game = (() => {
           if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
             if (b.action === 'acceptBattle') acceptBattle();
             else declineBattle();
-            return;
+            return true;
           }
         }
-        if (ui.chat.battle) return; // 战斗询问期间点击别处不触发开火
+        if (ui.chat.battle) return true; // 战斗询问期间点击别处不触发开火
       }
       if (ui.panel !== 'none') {
         uiClick(mx, my);
-        return;
+        return true;
       }
       if (state.screen !== 'playing') {
         for (const b of overlayButtons()) {
           if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
             b.action();
-            return;
+            return true;
           }
         }
-        return;
+        return false;
       }
       input.mouseHard = true;
+      return true;
     }
     function onMouseUp(e) { if (e.button === 0) input.mouseHard = false; }
     function onWheel(e) {
@@ -1653,6 +1657,16 @@ const Game = (() => {
     }
 
     function touchButtons() {
+      if (view.w < 780) {
+        return [
+          { id: 'dash', x: 84, y: view.h - 150, r: 34, label: '闪' },
+          { id: 'interact', x: view.w - 60, y: view.h - 104, r: 30, label: 'E' },
+          { id: 'reload', x: view.w - 60, y: view.h - 176, r: 30, label: 'R' },
+          { id: 'switch', x: view.w - 60, y: view.h - 248, r: 30, label: '换' },
+          { id: 'panel', x: view.w - 60, y: view.h - 320, r: 30, label: '包' },
+          { id: 'pause', x: 40, y: 42, r: 22, label: 'II' }
+        ];
+      }
       return [
         { id: 'dash', x: 96, y: view.h - 150, r: 36, label: '闪' },
         { id: 'reload', x: view.w - 64, y: view.h - 64, r: 30, label: 'R' },
@@ -1676,25 +1690,43 @@ const Game = (() => {
       for (const t of e.changedTouches) {
         const x = t.clientX - rect.left;
         const y = t.clientY - rect.top;
-        const btn = hitTouchButton(x, y);
-        if (btn) {
-          if (btn.id === 'dash') input.dashTap = true;
-          else if (btn.id === 'reload') input.tapQueue.add('reload');
-          else if (btn.id === 'interact') input.tapQueue.add('interact');
-          else if (btn.id === 'switch') input.tapQueue.add('switchR');
-          else if (btn.id === 'panel') input.tapQueue.add('panel');
-          else if (btn.id === 'pause') input.tapQueue.add('pause');
-          continue;
-        }
-        if (x < view.w * 0.5 && input.touch.moveId === null) {
-          input.touch.moveId = t.identifier;
-          input.touch.moveOrigin = { x, y };
-          input.touch.moveVec = { x: 0, y: 0 };
-        } else if (x >= view.w * 0.5 && input.touch.aimId === null) {
-          input.touch.aimId = t.identifier;
-          input.touch.aimPos = { x, y };
-          input.touch.firing = true;
-        }
+        handleTouchPoint(x, y, t.identifier);
+      }
+    }
+
+    function handleTouchPoint(x, y, id) {
+      if (ui.chat) {
+        if (ui.chat.buttons) handleClick(x, y);
+        else closeChat(); // 普通聊天：点击任意处关闭（替代右键）
+        return;
+      }
+      if (ui.panel !== 'none') {
+        uiClick(x, y);
+        return;
+      }
+      if (state.screen !== 'playing') {
+        const acted = handleClick(x, y);
+        if (!acted && state.screen === 'start') beginRun(); // 手机端点击任意处开始
+        return;
+      }
+      const btn = hitTouchButton(x, y);
+      if (btn) {
+        if (btn.id === 'dash') input.dashTap = true;
+        else if (btn.id === 'reload') input.tapQueue.add('reload');
+        else if (btn.id === 'interact') input.tapQueue.add('interact');
+        else if (btn.id === 'switch') input.tapQueue.add('switchR');
+        else if (btn.id === 'panel') input.tapQueue.add('panel');
+        else if (btn.id === 'pause') input.tapQueue.add('pause');
+        return;
+      }
+      if (x < view.w * 0.5 && input.touch.moveId === null) {
+        input.touch.moveId = id;
+        input.touch.moveOrigin = { x, y };
+        input.touch.moveVec = { x: 0, y: 0 };
+      } else if (x >= view.w * 0.5 && input.touch.aimId === null) {
+        input.touch.aimId = id;
+        input.touch.aimPos = { x, y };
+        input.touch.firing = true;
       }
     }
 
@@ -1834,7 +1866,7 @@ const Game = (() => {
               world.coinPile.collected = true;
               fx.floater(p.x, p.y - 30, '+' + world.coinPile.amount + ' 金币', 'crit');
               audio.play('chest');
-            } else if (world.portal && world.portal.active &&
+            } else if (portalVisible() && world.portal.active &&
                 utils.distance(p.x, p.y, world.portal.x, world.portal.y) < 90) {
               world.portal = null;
               world.transition = { active: true, t: 0, rx: 'next', ry: 0 };
@@ -2301,7 +2333,8 @@ const Game = (() => {
         k.life -= dt;
         if (k.life <= 0) { utils.swapRemove(world.pickups, i); continue; }
         const d = Math.hypot(p.x - k.x, p.y - k.y);
-        const magnet = k.kind === 'coin' && d < 260;
+        const magnet = (k.kind === 'coin' && d < 260) ||
+          (world.room && world.room.cleared && (k.kind !== 'part' || world.inventory.length < 10));
         if (magnet) {
           k.vx += (p.x - k.x) / (d || 1) * 700 * dt;
           k.vy += (p.y - k.y) / (d || 1) * 700 * dt;
@@ -2508,8 +2541,8 @@ const Game = (() => {
           room.waveCounts.push(base + (i < rem ? 1 : 0));
         }
         spawnWaveEnemies(room, room.waveCounts[0], null);
-        room.alertT = 3;
-        setBanner('第 1 波 / 共 ' + room.waveTotal + ' 波', 2.2, '敌人 3 秒后开始行动');
+        room.alertT = 1.5;
+        setBanner('第 1 波 / 共 ' + room.waveTotal + ' 波', 2.2, '敌人 1.5 秒后开始行动');
       } else if (room.type === 'elite') {
         room.waveTotal = 1;
         room.waveIndex = 1;
@@ -2520,7 +2553,7 @@ const Game = (() => {
         world.enemies.push(spawnEnemy('elite', pos.x, pos.y, es));
         world.enemies.push(spawnEnemy('shooter', pos.x - 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
         world.enemies.push(spawnEnemy('shooter', pos.x + 240, pos.y, 1.3 + (world.layer - 1) * 0.3));
-        room.alertT = 3;
+        room.alertT = 1.5;
       } else if (room.type === 'boss') {
         room.waveTotal = 1;
         room.waveIndex = 1;
@@ -2533,7 +2566,7 @@ const Game = (() => {
           boss.hp = Math.round(boss.hp * 3);
           boss.maxHp = boss.hp;
         }
-        room.alertT = 3;
+        room.alertT = 1.5;
       } else if (room.type === 'treasure') {
         world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
       } else if (room.type === 'coin') {
@@ -2555,6 +2588,7 @@ const Game = (() => {
       if (!room || room.cleared) return;
       const needsClear = room.type === 'combat' || room.type === 'elite' || room.type === 'boss';
       if (needsClear && world.enemies.length > 0) return;
+      if (room.type === 'combat' && room.waveState === 'countdown') return; // 倒计时期间不算清房
       if (room.type === 'combat' && room.waveState === 'active' && room.waveIndex < room.waveTotal) {
         room.waveState = 'countdown';
         room.waveT = 3;
@@ -2573,9 +2607,16 @@ const Game = (() => {
       room.cleared = true;
       world.mapInfo.clearedRooms++;
       if (needsClear) {
+        setBanner('成功击败', 1.6, '门已开启');
         audio.play('door');
         fx.floater(world.player.x, world.player.y - 40, '门已开启', 'normal');
       }
+    }
+
+    function portalVisible() {
+      return !!(world.portal &&
+        world.mapInfo.roomPos.x === world.portal.roomX &&
+        world.mapInfo.roomPos.y === world.portal.roomY);
     }
 
     function checkDoors(dt) {
@@ -3473,7 +3514,7 @@ const Game = (() => {
     }
 
     function drawPortal() {
-      if (!world.portal) return;
+      if (!portalVisible()) return;
       const pr = world.portal;
       const t = Math.min(1, pr.t / 1.2);
       const radius = 30 + 34 * t;
@@ -3826,13 +3867,14 @@ const Game = (() => {
     function drawHUD() {
       const g = gun();
       const p = world.player;
+      const mobile = touchMode && view.w < 780;
       ctx.fillStyle = 'rgba(53, 224, 255, 0.7)';
-      ctx.font = '14px Consolas, monospace';
+      ctx.font = (mobile ? 11 : 14) + 'px Consolas, monospace';
       ctx.textAlign = 'left';
       ctx.fillText('T ' + world.time.toFixed(1) + 's', 14, 24);
 
       // 生命格子条
-      const cells = 10, cw = 26, ch = 12, gap = 2;
+      const cells = 10, cw = mobile ? 20 : 26, ch = mobile ? 10 : 12, gap = 2;
       const cellHp = p.maxHp / cells;
       const hx = 14, hy = view.h - 34;
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
@@ -3850,45 +3892,62 @@ const Game = (() => {
         }
       }
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.font = '13px Consolas, monospace';
+      ctx.font = (mobile ? 11 : 13) + 'px Consolas, monospace';
       ctx.fillText(Math.ceil(p.hp) + ' / ' + p.maxHp, hx, hy - 6);
 
       if (p.maxArmor > 0) {
-        const aw = 260;
+        const aw = mobile ? 200 : 260;
         ctx.fillStyle = 'rgba(255,255,255,0.12)';
         ctx.fillRect(hx, hy - 18, aw, 7);
         ctx.fillStyle = '#35e0ff';
         ctx.fillRect(hx, hy - 18, aw * utils.clamp(p.armor / p.maxArmor, 0, 1), 7);
         ctx.fillStyle = 'rgba(180,230,255,0.85)';
-        ctx.font = '10px Consolas, monospace';
+        ctx.font = (mobile ? 9 : 10) + 'px Consolas, monospace';
         ctx.fillText('护甲 ' + Math.ceil(p.armor) + '/' + p.maxArmor, hx, hy - 22);
       }
 
       ctx.textAlign = 'right';
       ctx.fillStyle = g.mag === 0 ? '#ff4d5e' : '#ffd166';
-      ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, view.h - 18);
-      if (g.reloading) {
-        ctx.fillStyle = 'rgba(255, 209, 102, 0.7)';
-        const w = 120 * (1 - g.reloadT / g.stats.reloadTime);
-        ctx.fillRect(view.w - 14 - w, view.h - 12, w, 4);
+      if (mobile) {
+        ctx.font = 'bold 13px Consolas, monospace';
+        ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, 64);
+        if (g.reloading) {
+          ctx.fillStyle = 'rgba(255, 209, 102, 0.7)';
+          const w = 90 * (1 - g.reloadT / g.stats.reloadTime);
+          ctx.fillRect(view.w - 14 - w, 72, w, 4);
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '9px Consolas, monospace';
+        ctx.fillText(g.parts.body.name + '·' + g.parts.ammo.name, view.w - 14, 84);
+        ctx.fillStyle = 'rgba(255, 77, 94, 0.8)';
+        ctx.font = '11px Consolas, monospace';
+        ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
+      } else {
+        ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, view.h - 18);
+        if (g.reloading) {
+          ctx.fillStyle = 'rgba(255, 209, 102, 0.7)';
+          const w = 120 * (1 - g.reloadT / g.stats.reloadTime);
+          ctx.fillRect(view.w - 14 - w, view.h - 12, w, 4);
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.font = '12px Consolas, monospace';
+        ctx.fillText(g.parts.body.name + ' · ' + g.parts.ammo.name + ' · ' + g.parts.mod.name, view.w - 14, view.h - 42);
+        ctx.fillStyle = 'rgba(255, 77, 94, 0.7)';
+        ctx.font = '14px Consolas, monospace';
+        ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
       }
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.font = '12px Consolas, monospace';
-      ctx.fillText(g.parts.body.name + ' · ' + g.parts.ammo.name + ' · ' + g.parts.mod.name, view.w - 14, view.h - 42);
-      ctx.fillStyle = 'rgba(255, 77, 94, 0.7)';
-      ctx.font = '14px Consolas, monospace';
-      ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
       ctx.textAlign = 'center';
       ctx.fillStyle = accent();
+      ctx.font = (mobile ? 11 : 14) + 'px Consolas, monospace';
       ctx.fillText('第 ' + world.layer + ' 层 · 房间 ' + world.mapInfo.clearedRooms + '/' + world.mapInfo.totalRooms, view.w / 2, 24);
 
       if (world.stats.combo > 1 && world.time - world.stats.comboT < 0.5) {
         ctx.fillStyle = '#ffd166';
-        ctx.font = 'bold 22px Consolas, monospace';
-        ctx.fillText('x' + world.stats.combo, view.w / 2, view.h - 100);
+        ctx.font = 'bold ' + (mobile ? 18 : 22) + 'px Consolas, monospace';
+        ctx.fillText('x' + world.stats.combo, view.w / 2, mobile ? view.h - 120 : view.h - 100);
       }
       const dash = world.dash;
-      const dBarW = 190, dBarH = 10;
+      const dBarW = mobile ? 150 : 190, dBarH = 10;
       const dBarX = view.w / 2 - dBarW / 2;
       const dBarY = view.h - 64;
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
@@ -3907,7 +3966,7 @@ const Game = (() => {
         ctx.lineWidth = 2;
         ctx.strokeRect(dBarX - 2, dBarY - 2, dBarW + 4, dBarH + 4);
         ctx.fillStyle = col;
-        ctx.font = 'bold 14px Consolas, monospace';
+        ctx.font = 'bold ' + (mobile ? 12 : 14) + 'px Consolas, monospace';
         ctx.fillText('瞬身冷却 ' + dash.cd.toFixed(1) + 's', view.w / 2, dBarY - 8);
       } else {
         ctx.fillStyle = '#35e0ff';
@@ -3915,7 +3974,7 @@ const Game = (() => {
         ctx.strokeStyle = '#35e0ff';
         ctx.strokeRect(dBarX - 2, dBarY - 2, dBarW + 4, dBarH + 4);
         ctx.fillStyle = '#9adcff';
-        ctx.font = 'bold 14px Consolas, monospace';
+        ctx.font = 'bold ' + (mobile ? 12 : 14) + 'px Consolas, monospace';
         ctx.fillText('瞬身就绪（空格+左键）', view.w / 2, dBarY - 8);
       }
       drawMinimap();
@@ -3973,7 +4032,7 @@ const Game = (() => {
       if (!room || room.alertT == null || room.alertT <= 0 || world.enemies.length === 0) return;
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255, 77, 94, 0.9)';
-      ctx.font = 'bold 20px Consolas, monospace';
+      ctx.font = 'bold ' + ((touchMode && view.w < 780) ? 16 : 20) + 'px Consolas, monospace';
       ctx.fillText('敌人尚未察觉 · ' + Math.ceil(room.alertT), view.w / 2, 90);
     }
 
@@ -3986,14 +4045,14 @@ const Game = (() => {
       ctx.globalAlpha = alpha;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#35e0ff';
-      ctx.font = 'bold 46px Consolas, monospace';
+      ctx.font = 'bold ' + ((touchMode && view.w < 780) ? 32 : 46) + 'px Consolas, monospace';
       ctx.shadowColor = '#35e0ff';
       ctx.shadowBlur = 16;
       ctx.fillText(b.text, view.w / 2, view.h * 0.32);
       ctx.shadowBlur = 0;
       if (b.sub) {
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.font = '16px Consolas, monospace';
+        ctx.font = ((touchMode && view.w < 780) ? 12 : 16) + 'px Consolas, monospace';
         ctx.fillText(b.sub, view.w / 2, view.h * 0.32 + 32);
       }
       ctx.globalAlpha = 1;
@@ -4001,14 +4060,15 @@ const Game = (() => {
 
     function drawMinimap() {
       if (!world.map) return;
-      const cell = 14, gap = 2;
+      const mobile = touchMode && view.w < 780;
+      const cell = mobile ? 10 : 14, gap = 2;
       const gw = world.map.gridW || 3;
       const gh = world.map.gridH || 3;
       const mx = view.w - 14 - gw * (cell + gap);
-      const my = 40;
+      const my = mobile ? 100 : 40;
       ctx.textAlign = 'right';
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.font = '10px Consolas, monospace';
+      ctx.font = (mobile ? 9 : 10) + 'px Consolas, monospace';
       ctx.fillText('第' + world.layer + '层', view.w - 14, my - 6);
       for (const room of world.map.rooms) {
         const px = mx + room.x * (cell + gap);
@@ -4051,7 +4111,8 @@ const Game = (() => {
     }
 
     function overlayButtons() {
-      const bw = 220, bh = 46;
+      const mobile = touchMode && view.w < 780;
+      const bw = mobile ? 200 : 220, bh = mobile ? 42 : 46;
       const cx = view.w / 2;
       const list = [];
       if (state.screen === 'start') {
@@ -4071,6 +4132,7 @@ const Game = (() => {
 
     function drawOverlay() {
       if (state.screen === 'playing') return;
+      const mobile = touchMode && view.w < 780;
       ctx.fillStyle = 'rgba(4, 8, 14, 0.78)';
       ctx.fillRect(0, 0, view.w, view.h);
       ctx.textAlign = 'center';
@@ -4078,38 +4140,39 @@ const Game = (() => {
         ctx.fillStyle = '#35e0ff';
         ctx.shadowColor = '#35e0ff';
         ctx.shadowBlur = 18;
-        ctx.font = 'bold 54px Consolas, monospace';
-        ctx.fillText('枪械工艺', view.w / 2, view.h / 2 - 90);
+        ctx.font = 'bold ' + (mobile ? 36 : 54) + 'px Consolas, monospace';
+        ctx.fillText('枪械工艺', view.w / 2, view.h / 2 - (mobile ? 70 : 90));
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.font = '14px Consolas, monospace';
-        ctx.fillText('WASD 移动 · 鼠标瞄准/射击 · R 换弹 · 1/2/滚轮切枪', view.w / 2, view.h / 2 - 34);
-        ctx.fillText('B 部件面板 · E 开箱/商店 · ESC 暂停', view.w / 2, view.h / 2 - 10);
+        ctx.font = (mobile ? 11 : 14) + 'px Consolas, monospace';
+        ctx.fillText(mobile ? '左摇杆移动 · 右侧瞄准射击 · 按钮操作' : 'WASD 移动 · 鼠标瞄准/射击 · R 换弹 · 1/2/滚轮切枪', view.w / 2, view.h / 2 - (mobile ? 24 : 34));
+        ctx.fillText(mobile ? '瞬身/换弹/交互/切枪/背包均为屏幕按钮' : 'B 部件面板 · E 开箱/商店 · ESC 暂停', view.w / 2, view.h / 2 - (mobile ? 6 : 10));
         ctx.fillStyle = 'rgba(53,224,255,0.85)';
-        ctx.fillText('按住空格慢动作瞄准，左键瞬身滑步（击杀刷新）', view.w / 2, view.h / 2 + 24);
+        ctx.font = (mobile ? 10 : 14) + 'px Consolas, monospace';
+        ctx.fillText(mobile ? '瞬身：击杀刷新冷却' : '按住空格慢动作瞄准，左键瞬身滑步（击杀刷新）', view.w / 2, view.h / 2 + (mobile ? 16 : 24));
         ctx.fillStyle = 'rgba(255,209,102,0.85)';
-        ctx.fillText('收集枪械部件，拼装武器，击败机械核心', view.w / 2, view.h / 2 + 46);
+        ctx.fillText('收集枪械部件，拼装武器，击败机械核心', view.w / 2, view.h / 2 + (mobile ? 36 : 46));
       } else if (state.screen === 'paused') {
         ctx.fillStyle = '#ffd166';
-        ctx.font = 'bold 38px Consolas, monospace';
-        ctx.fillText('已暂停', view.w / 2, view.h / 2 - 50);
+        ctx.font = 'bold ' + (mobile ? 28 : 38) + 'px Consolas, monospace';
+        ctx.fillText('已暂停', view.w / 2, view.h / 2 - (mobile ? 40 : 50));
       } else if (state.screen === 'dead') {
         ctx.fillStyle = '#ff4d5e';
-        ctx.font = 'bold 44px Consolas, monospace';
-        ctx.fillText('信号中断', view.w / 2, view.h / 2 - 80);
+        ctx.font = 'bold ' + (mobile ? 30 : 44) + 'px Consolas, monospace';
+        ctx.fillText('信号中断', view.w / 2, view.h / 2 - (mobile ? 60 : 80));
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.font = '15px Consolas, monospace';
+        ctx.font = (mobile ? 12 : 15) + 'px Consolas, monospace';
         ctx.fillText('存活 ' + world.time.toFixed(1) + 's · 击杀 ' + world.stats.kills + ' · 金币 ' + world.coins,
-          view.w / 2, view.h / 2 - 40);
+          view.w / 2, view.h / 2 - (mobile ? 32 : 40));
       } else if (state.screen === 'win') {
         ctx.fillStyle = '#ffd166';
-        ctx.font = 'bold 44px Consolas, monospace';
-        ctx.fillText('核心已摧毁', view.w / 2, view.h / 2 - 80);
+        ctx.font = 'bold ' + (mobile ? 30 : 44) + 'px Consolas, monospace';
+        ctx.fillText('核心已摧毁', view.w / 2, view.h / 2 - (mobile ? 60 : 80));
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.font = '15px Consolas, monospace';
+        ctx.font = (mobile ? 12 : 15) + 'px Consolas, monospace';
         ctx.fillText('用时 ' + world.time.toFixed(1) + 's · 击杀 ' + world.stats.kills +
           ' · 金币 ' + world.coins + ' · 部件 ' + world.inventory.length,
-          view.w / 2, view.h / 2 - 40);
+          view.w / 2, view.h / 2 - (mobile ? 32 : 40));
       }
       for (const b of overlayButtons()) {
         ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
@@ -4121,7 +4184,7 @@ const Game = (() => {
         ctx.shadowBlur = 0;
         ctx.strokeRect(b.x, b.y, b.w, b.h);
         ctx.fillStyle = '#ffffff';
-        ctx.font = '16px Consolas, monospace';
+        ctx.font = (mobile ? 13 : 16) + 'px Consolas, monospace';
         ctx.fillText(b.label, view.w / 2, b.y + 29);
       }
       ctx.textAlign = 'left';
@@ -4191,7 +4254,7 @@ const Game = (() => {
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
       openPanel, closePanel, uiClick, panelMetrics, buildPanelRows, closeChat,
-      handleClick,
+      handleClick, handleTouchPoint, portalVisible,
       startMap, enterRoom,
       update, render, start, setScreen, restart, beginRun, hudData,
       VERSION

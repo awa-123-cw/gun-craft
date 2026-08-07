@@ -716,18 +716,6 @@ test('护甲回复改为低频少量', () => {
   assert.ok(game.world.player.armor >= 8, '每次恢复约 9 点');
 });
 
-test('清房后掉落物不再自动飞向玩家', () => {
-  const { game } = makeGame();
-  game.world.room.cleared = true;
-  game.spawnPickup('coin', game.world.player.x + 500, game.world.player.y, 3);
-  const k = game.world.pickups[0];
-  k.vx = 0;
-  k.vy = 0;
-  const before = k.x;
-  for (let i = 0; i < 60; i++) game.update(1 / 120);
-  assert.ok(Math.abs(k.x - before) < 10, '清房后金币不应自动飞向玩家');
-});
-
 test('攻击初始房 NPC 触发战/不战选项', () => {
   const { game } = makeGame();
   game.startMap(123);
@@ -879,14 +867,14 @@ test('波次系统：清空后 3 秒倒计时生成下一波', () => {
   assert.ok(game.world.enemies.length > 0, '下一波敌人应出现');
 });
 
-test('进入敌人房间 3 秒警觉期敌人不行动', () => {
+test('进入敌人房间 1.5 秒警觉期敌人不行动', () => {
   const { game } = makeGame();
   game.startMap(999);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
   const e = game.world.enemies[0];
   const sx = e.x, sy = e.y;
-  for (let i = 0; i < 300; i++) game.update(1 / 120); // 2.5s
+  for (let i = 0; i < 144; i++) game.update(1 / 120); // 1.2s
   assert.ok(Math.hypot(e.x - sx, e.y - sy) < 1, '警觉期内敌人不应移动');
   for (let i = 0; i < 120; i++) game.update(1 / 120); // 再 1s
   assert.ok(Math.hypot(e.x - sx, e.y - sy) > 1, '警觉结束后敌人应行动');
@@ -943,6 +931,72 @@ test('进入房间时出现在门那一侧', () => {
   assert.ok(game.world.player.x < 300, '从东门进入应靠左（门的这一侧）');
   game.enterRoom(combat.x, combat.y, 'n');
   assert.ok(game.world.player.y > 900, '从北门进入应靠下（门的这一侧）');
+});
+
+test('清房后背包未满时掉落物飞向玩家；满时部件不飞', () => {
+  const { game, Game } = makeGame();
+  game.setScreen('playing');
+  game.world.room.cleared = true;
+  game.world.inventory.length = 0;
+  const part = { id: 'pistol_body', slot: 'body', name: '标准枪身', rarity: 0, color: '#35e0ff', affixes: [] };
+  game.spawnPickup('part', game.world.player.x + 400, game.world.player.y, part);
+  const k = game.world.pickups[0];
+  k.vx = 0;
+  k.vy = 0;
+  const before = k.x;
+  for (let i = 0; i < 60; i++) game.update(1 / 120);
+  assert.ok(k.x < before - 30, '清房且背包未满时部件应飞向玩家');
+  // 满包
+  game.world.pickups.length = 0;
+  for (let i = 0; i < 10; i++) game.world.inventory.push(Game.partsEngine.rollPart());
+  game.spawnPickup('part', game.world.player.x + 400, game.world.player.y, part);
+  const k2 = game.world.pickups[0];
+  k2.vx = 0;
+  k2.vy = 0;
+  const before2 = k2.x;
+  for (let i = 0; i < 60; i++) game.update(1 / 120);
+  assert.ok(Math.abs(k2.x - before2) < 15, '清房但背包满时部件不应飞向玩家');
+});
+
+test('敌人房间击败后显示"成功击败"大字', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  let guard = 0;
+  while (!game.world.room.cleared && guard++ < 30) {
+    while (game.world.enemies.length) {
+      for (const e of [...game.world.enemies]) game.killEnemy(e);
+      game.update(0.1);
+    }
+    for (let i = 0; i < 40; i++) game.update(0.1);
+  }
+  assert.strictEqual(game.world.banner.text, '成功击败', '清房后应显示成功击败横幅');
+});
+
+test('传送门只出现在 Boss 房', () => {
+  const { game } = makeGame();
+  game.beginRun();
+  game.enterRoom(game.world.map.boss.x, game.world.map.boss.y);
+  const boss = game.world.enemies[0];
+  boss.hp = 1;
+  game.damageEnemy(boss, 5, 0, {});
+  game.update(0.1);
+  game.update(0.2);
+  assert.ok(game.world.portal, 'Boss 房应出现传送门');
+  assert.ok(game.portalVisible(), '在 Boss 房应可见');
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  assert.ok(!game.portalVisible(), '在其他房间不应可见');
+  game.enterRoom(game.world.map.boss.x, game.world.map.boss.y);
+  assert.ok(game.portalVisible(), '回到 Boss 房应恢复可见');
+});
+
+test('手机端：开始界面点击任意处开始', () => {
+  const { game } = makeGame();
+  assert.strictEqual(game.state.screen, 'start');
+  game.handleTouchPoint(10, 10);
+  assert.strictEqual(game.state.screen, 'playing', '手机端点击应开始游戏');
 });
 
 test('子弹耗尽自动换弹', () => {
