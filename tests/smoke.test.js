@@ -1478,26 +1478,28 @@ test('障碍物分裂上限：大面积最多分裂2次，小面积最多1次', 
   assert.strictEqual(room.obstacles.length, before3 - 1, '到达分裂上限后应只爆炸不再生成');
 });
 
-test('瞬身推动小型障碍物并伤害路径敌人', () => {
+test('瞬身推动小型障碍物：撞到路径敌人才扣血且为整数', () => {
   const { game } = makeGame();
   game.setScreen('playing');
   const pl = game.world.player;
   pl.x = 600; pl.y = 500;
   game.camera.x = pl.x; game.camera.y = pl.y; // 相机对准玩家，便于换算准星世界坐标
-  game.world.room.obstacles = [{ x: 630, y: 470, w: 58, h: 58, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }]; // 3364 < 3500 可推动
-  const e = game.spawnEnemy('chaser', 770, 500, 1);
-  const hp0 = e.hp;
-  game.world.enemies.push(e);
+  game.world.room.obstacles = [{ x: 630, y: 470, w: 58, h: 58, hp: 200, maxHp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9, pushedBy: null, hitT: -9 }]; // 3364 < 3500 可推动
+  const hit = game.spawnEnemy('chaser', 770, 500, 1);
+  const behind = game.spawnEnemy('chaser', 560, 500, 1); // 障碍物右侧飞，此敌人在左侧不应受伤
+  const hp0 = hit.hp, hpB0 = behind.hp;
+  game.world.enemies.push(hit, behind);
   // 准星对准玩家右侧 100px，瞬身方向为正右方
   game.input.mouse.x = 480 + 100 * 1.875;
   game.input.mouse.y = 270;
   game.input.keys.add('Space');
   game.input.mouseHard = true; // update 内每帧据此覆盖 mouse.down
-  for (let i = 0; i < 4; i++) game.update(1 / 120); // 触发瞬身后撞向障碍物并推动
+  for (let i = 0; i < 40; i++) game.update(1 / 120); // 触发瞬身后撞向障碍物，等障碍物飞过去撞到敌人
   const o = game.world.room.obstacles[0];
   assert.ok(Math.hypot(o.kvx, o.kvy) > 0, '瞬身应推动障碍物');
-  assert.ok(e.hp < hp0, '路径上的敌人应受到障碍物伤害');
-  assert.ok(Number.isInteger(hp0 - e.hp), '撞击伤害应为整数，实际扣血 ' + (hp0 - e.hp));
+  assert.ok(hit.hp < hp0, '路径上的敌人应被障碍物撞到受伤');
+  assert.ok(Number.isInteger(hp0 - hit.hp), '撞击伤害应为整数，实际扣血 ' + (hp0 - hit.hp));
+  assert.strictEqual(behind.hp, hpB0, '未撞击到的敌人不应受伤（不能“推开即伤”）');
 });
 
 test('重叠障碍物自动分离不堆叠', () => {
@@ -1543,4 +1545,111 @@ test('小地图问号不标记精英/敌人房间', () => {
   assert.ok(line, '应能找到小地图问号判定');
   assert.ok(!line[0].includes("'elite'"), '问号列表不应包含精英房（敌人房）');
   assert.ok(line[0].includes("'treasure'") && line[0].includes("'forge'"), '功能性房间应保留问号标记');
+});
+
+// ===== 手柄（round21）=====
+function fakePad(buttons) {
+  const b = [];
+  for (let i = 0; i < 16; i++) b.push({ pressed: !!buttons[i] });
+  return { buttons: b, axes: [0, 0, 0, 0] };
+}
+
+test('手柄 PS5 映射：交互=方(2)、瞬身=叉(0)、取消=圈(1)', () => {
+  const { ctx, game } = makeGame();
+  ctx.navigator.getGamepads = () => [fakePad([false, false, true])];
+  game.pollGamepad();
+  assert.strictEqual(game.input.gp.interact, true, '方(2) 应为交互键');
+  assert.strictEqual(game.input.gp.dash, false, '未按叉(0) 时不应触发瞬身');
+  ctx.navigator.getGamepads = () => [fakePad([true])];
+  game.pollGamepad();
+  assert.ok(game.input.dashTap, '叉(0) 按下应触发瞬身');
+  assert.ok(game.input.tapQueue.has('confirm'), '叉(0) 按下应同时发出确认事件');
+  ctx.navigator.getGamepads = () => [fakePad([false, true])];
+  game.pollGamepad();
+  assert.ok(game.input.tapQueue.has('cancel'), '圈(1) 应发出取消事件');
+});
+
+test('手柄连接时隐藏鼠标光标，断开恢复', () => {
+  const { ctx, game } = makeGame();
+  const canvas = ctx.document.getElementById('game');
+  ctx.navigator.getGamepads = () => [fakePad([])];
+  game.pollGamepad();
+  assert.strictEqual(canvas.style.cursor, 'none', '手柄使用中应隐藏光标');
+  ctx.navigator.getGamepads = () => [];
+  game.pollGamepad();
+  assert.strictEqual(canvas.style.cursor, 'crosshair', '手柄断开应恢复光标');
+});
+
+test('手柄确认键可开始游戏', () => {
+  const { game } = makeGame();
+  assert.strictEqual(game.state.screen, 'start');
+  game.input.tapQueue.add('confirm');
+  game.update(1 / 120);
+  assert.strictEqual(game.state.screen, 'playing', '确认键应触发开始游戏');
+});
+
+test('手柄开火时辅助瞄准平滑吸附敌人', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const p = game.world.player;
+  p.x = 600; p.y = 500;
+  p.aimAngle = 0.35; // 初始略偏
+  const e = game.spawnEnemy('chaser', 800, 500, 1);
+  game.world.enemies.push(e);
+  game.input.gp = { fire: true, ax: 0, ay: 0, lx: 0, ly: 0 };
+  for (let i = 0; i < 30; i++) game.update(1 / 120);
+  assert.ok(Math.abs(p.aimAngle) < 0.35, '开火时应向敌人吸附转向，当前 ' + p.aimAngle);
+});
+
+test('手柄圈键关闭聊天框', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.ui.chat = { name: 'npc', color: '#ff4d5e', lines: ['hi'], showOptions: false };
+  game.state.paused = true;
+  game.input.tapQueue.add('cancel');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.chat, null, '圈/○ 应关闭聊天框');
+});
+
+test('手柄战/不战：右方向键切换、圈拒绝', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.ui.chat = {
+    name: '作者 awa_cw', color: '#ff4d5e', lines: ['你想与我为战？'],
+    showOptions: false, battle: true,
+    buttons: [
+      { x: 0, y: 0, w: 92, h: 40, label: '战', action: 'acceptBattle' },
+      { x: 100, y: 0, w: 92, h: 40, label: '不战', action: 'declineBattle' }
+    ]
+  };
+  game.input.tapQueue.add('navRight');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.chatGp, 1, '右方向键应切到第二个按钮');
+  game.input.tapQueue.add('cancel');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.chat, null, '圈/○ 应拒绝战斗');
+});
+
+test('手柄面板：方向键选择、确认装备、取消关闭', () => {
+  const { game, Game } = makeGame();
+  game.setScreen('playing');
+  let part = Game.partsEngine.rollPart();
+  while (part.slot === 'armor') part = Game.partsEngine.rollPart();
+  const part2 = Game.partsEngine.rollPart();
+  game.world.inventory.push(part, part2);
+  game.openPanel('parts');
+  assert.strictEqual(game.ui.panel, 'parts');
+  assert.strictEqual(game.ui.gpIndex, 0, '打开面板应选中第一行');
+  game.input.tapQueue.add('navDown');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.gpIndex, 1, '方向键下应选中第二行');
+  game.ui.gpIndex = 0;
+  game.input.tapQueue.add('confirm');
+  game.update(1 / 120);
+  const g = game.gun();
+  if (part.slot === 'armor') assert.strictEqual(game.world.armor.id, part.id, '确认应装备所选护甲');
+  else assert.strictEqual(g.parts[part.slot].id, part.id, '确认应装备所选部件');
+  game.input.tapQueue.add('cancel');
+  game.update(1 / 120);
+  assert.strictEqual(game.ui.panel, 'none', '圈/○ 应关闭面板');
 });

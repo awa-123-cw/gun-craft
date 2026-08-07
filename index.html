@@ -1445,7 +1445,7 @@ const Game = (() => {
       coinRain: null
     };
     const state = { screen: 'start', paused: false };
-    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null } };
+    const ui = { panel: 'none', title: '', items: [], loadout: [], loadoutChips: [], scroll: 0, maxScroll: 0, chat: null, forgeState: { mode: null, part: null }, gpIndex: 0, chatGp: 0 };
     const camera = { x: world.player.x, y: world.player.y };
     const input = {
       keys: new Set(), pressedSet: new Set(),
@@ -2461,6 +2461,7 @@ const Game = (() => {
     }
     function onKeyUp(e) { input.keys.delete(e.code); }
     function onMouseMove(e) {
+      if (canvas.style) canvas.style.cursor = 'crosshair'; // 鼠标一动恢复光标
       const rect = canvas.getBoundingClientRect();
       input.mouse.x = e.clientX - rect.left;
       input.mouse.y = e.clientY - rect.top;
@@ -2689,7 +2690,7 @@ const Game = (() => {
       const pads = navigator.getGamepads();
       const gp = pads && pads[0];
       const prev = input.gpPrev;
-      if (!gp) { input.gp = null; input.gpPrev = null; return; }
+      if (!gp) { input.gp = null; input.gpPrev = null; if (canvas.style) canvas.style.cursor = 'crosshair'; return; }
       const dead = 0.25;
       const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
       const cur = {
@@ -2697,18 +2698,29 @@ const Game = (() => {
         ly: Math.abs(gp.axes[1]) > dead ? gp.axes[1] : 0,
         ax: Math.abs(gp.axes[2]) > dead ? gp.axes[2] : 0,
         ay: Math.abs(gp.axes[3]) > dead ? gp.axes[3] : 0,
-        fire: btn(7), dash: btn(3), interact: btn(0), reload: btn(2),
-        panel: btn(1), pause: btn(9), switchR: btn(5), switchL: btn(4)
+        fire: btn(7), dash: btn(0), interact: btn(2), reload: btn(3),
+        panel: btn(8), pause: btn(9), switchR: btn(5), switchL: btn(4),
+        cancel: btn(1), confirm: btn(0),
+        navUp: btn(12), navDown: btn(13), navLeft: btn(14), navRight: btn(15)
       };
       input.gp = cur;
+      if (canvas.style) canvas.style.cursor = 'none'; // 手柄使用中隐藏鼠标光标
       if (prev) {
-        if (cur.dash && !prev.dash) input.dashTap = true;
+        if (cur.dash && !prev.dash) {
+          input.dashTap = true;
+          input.tapQueue.add('confirm'); // 游戏中=瞬身，菜单/聊天=确认
+        }
         if (cur.interact && !prev.interact) input.tapQueue.add('interact');
         if (cur.reload && !prev.reload) input.tapQueue.add('reload');
         if (cur.panel && !prev.panel) input.tapQueue.add('panel');
         if (cur.pause && !prev.pause) input.tapQueue.add('pause');
         if (cur.switchR && !prev.switchR) input.tapQueue.add('switchR');
         if (cur.switchL && !prev.switchL) input.tapQueue.add('switchL');
+        if (cur.cancel && !prev.cancel) input.tapQueue.add('cancel');
+        if (cur.navUp && !prev.navUp) input.tapQueue.add('navUp');
+        if (cur.navDown && !prev.navDown) input.tapQueue.add('navDown');
+        if (cur.navLeft && !prev.navLeft) input.tapQueue.add('navLeft');
+        if (cur.navRight && !prev.navRight) input.tapQueue.add('navRight');
       }
       input.gpPrev = cur;
     }
@@ -2718,7 +2730,7 @@ const Game = (() => {
       input.frameHandled = false;
       if (touchMode && view.h > view.w) return; // 手机端竖屏锁定，等待横屏
       if (input.tapQueue.size) {
-        if (input.tapQueue.has('interact')) input.pressedSet.add('KeyE');
+        if (input.tapQueue.has('interact') && ui.panel === 'none' && !ui.chat) input.pressedSet.add('KeyE');
         if (input.tapQueue.has('panel')) input.pressedSet.add('KeyB');
         if (input.tapQueue.has('pause')) input.pressedSet.add('Escape');
         if (input.tapQueue.has('switchR') || input.tapQueue.has('switchL')) {
@@ -2730,6 +2742,46 @@ const Game = (() => {
             g.reloading = true;
             g.reloadT = g.stats.reloadTime;
           }
+        }
+        // ===== 手柄：聊天/面板导航 =====
+        if (ui.chat) {
+          if ((input.tapQueue.has('navLeft') || input.tapQueue.has('navRight')) && ui.chat.buttons && ui.chat.buttons.length) {
+            const n = ui.chat.buttons.length;
+            ui.chatGp = (ui.chatGp + (input.tapQueue.has('navRight') ? 1 : -1) + n) % n;
+          }
+          if (input.tapQueue.has('confirm')) {
+            if (ui.chat.buttons && ui.chat.buttons[ui.chatGp]) {
+              const b = ui.chat.buttons[ui.chatGp];
+              if (b.action === 'acceptBattle') acceptBattle();
+              else declineBattle();
+            } else {
+              closeChat();
+            }
+          }
+          if (input.tapQueue.has('cancel')) {
+            if (ui.chat.battle) declineBattle();
+            else closeChat();
+          }
+        } else if (ui.panel !== 'none') {
+          if ((input.tapQueue.has('navUp') || input.tapQueue.has('navDown')) && ui.items.length) {
+            const d = input.tapQueue.has('navDown') ? 1 : -1;
+            ui.gpIndex = utils.clamp((ui.gpIndex || 0) + d, 0, ui.items.length - 1);
+            if (ui.maxScroll > 0) {
+              const row = ui.items[ui.gpIndex];
+              const pm = panelMetrics();
+              if (row && row.y > pm.py + pm.panelH - 60) ui.scroll = utils.clamp(ui.scroll + 52, 0, ui.maxScroll);
+              else if (row && row.y < pm.py + 90) ui.scroll = utils.clamp(ui.scroll - 52, 0, ui.maxScroll);
+              buildPanelRows();
+            }
+          }
+          if (input.tapQueue.has('confirm') && ui.items[ui.gpIndex]) {
+            const row = ui.items[ui.gpIndex];
+            uiClick(row.x + row.w / 2, row.y + row.h / 2);
+          }
+          if (input.tapQueue.has('cancel')) closePanel();
+        } else if (input.tapQueue.has('confirm') && state.screen !== 'playing') {
+          const bs = overlayButtons();
+          if (bs[0]) { bs[0].action(); input.dashTap = false; } // 开始/暂停/结算界面按确认键启动
         }
         input.tapQueue.clear();
       }
@@ -2838,8 +2890,17 @@ const Game = (() => {
         input.mouse.y = input.touch.aimPos.y;
       }
       const stickAim = gp && (Math.abs(gp.ax) > 0.2 || Math.abs(gp.ay) > 0.2);
-      if (stickAim) {
-        p.aimAngle = Math.atan2(gp.ay, gp.ax);
+      if (gp && (stickAim || gp.fire)) {
+        // 手柄：右摇杆定方向，开火时辅助瞄准吸附（同手机端），平滑转向
+        let desired = stickAim ? Math.atan2(gp.ay, gp.ax) : p.aimAngle;
+        if (gp.fire) {
+          const target = assistAim(p, p.x + Math.cos(p.aimAngle) * 220, p.y + Math.sin(p.aimAngle) * 220);
+          if (target !== null) desired = target;
+        }
+        let diff = desired - p.aimAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        p.aimAngle += utils.clamp(diff, -8 * dt, 8 * dt); // 平滑转向，不生硬
       } else {
         const mx = sxToWx(input.mouse.x);
         const my = syToWy(input.mouse.y);
@@ -3447,13 +3508,7 @@ const Game = (() => {
             o.kvx += Math.cos(world.dash.angle) * 700;
             o.kvy += Math.sin(world.dash.angle) * 700;
             o.vr += utils.rand(-4, 4);
-            const dmg = Math.round(Math.min(50, (o.w * o.h) / 80));
-            for (const e of world.enemies) {
-              if (e.dead) continue;
-              if (Math.hypot(e.x - o.x, e.y - o.y) < 140 + e.radius) {
-                damageEnemy(e, dmg, Math.atan2(e.y - o.y, e.x - o.x), {});
-              }
-            }
+            o.pushedBy = 'player'; // 撞击伤害改为障碍物实际撞到目标时结算
             audio.play('boom');
           }
         }
@@ -3470,8 +3525,7 @@ const Game = (() => {
             o.kvx += Math.cos(dirAngle) * 550;
             o.kvy += Math.sin(dirAngle) * 550;
             o.vr += utils.rand(-4, 4);
-            const dmg = Math.round(Math.min(50, (o.w * o.h) / 80));
-            damagePlayer(dmg, dirAngle);
+            o.pushedBy = 'enemy'; // 撞击伤害改为障碍物实际撞到目标时结算
             audio.play('boom');
           }
         }
@@ -3495,6 +3549,35 @@ const Game = (() => {
         o.y = utils.clamp(o.y, 20, ROOM_H - o.h - 20);
       }
       separateObstacles();
+      // 被推飞的障碍物撞到目标才结算伤害（不再“推开即伤”）
+      const pl = world.player;
+      for (const o of obs) {
+        if (!o.pushedBy) continue;
+        if (Math.hypot(o.kvx, o.kvy) < 120) continue; // 子弹击飞(40)不算撞击
+        const dmg = Math.round(Math.min(50, (o.w * o.h) / 80));
+        if (o.pushedBy === 'player') {
+          for (const e of world.enemies) {
+            if (e.dead) continue;
+            if (utils.circleRectHit(e.x, e.y, e.radius, o)) {
+              if (world.time - (o.hitT || -9) > 0.15) {
+                o.hitT = world.time;
+                damageEnemy(e, dmg, Math.atan2(e.y - o.y, e.x - o.x), {});
+                o.kvx *= -0.3;
+                o.kvy *= -0.3;
+              }
+            }
+          }
+        } else if (o.pushedBy === 'enemy') {
+          if (utils.circleRectHit(pl.x, pl.y, pl.radius, o)) {
+            if (world.time - (o.hitT || -9) > 0.15) {
+              o.hitT = world.time;
+              damagePlayer(dmg, Math.atan2(pl.y - o.y, pl.x - o.x));
+              o.kvx *= -0.3;
+              o.kvy *= -0.3;
+            }
+          }
+        }
+      }
     }
 
     function separateObstacles() {
@@ -3552,7 +3635,8 @@ const Game = (() => {
           w: nw, h: nh, delay: 0, hp: 80, maxHp: 80,
           kvx: Math.cos(ang) * sp, kvy: Math.sin(ang) * sp,
           rot: Math.random() * 0.5, vr: (Math.random() - 0.5) * 8,
-          splits: (o.splits || 0) + 1, knockT: -9
+          splits: (o.splits || 0) + 1, knockT: -9,
+          pushedBy: null, hitT: -9
         });
       }
     }
@@ -3611,6 +3695,7 @@ const Game = (() => {
           rect.hp = 200; rect.maxHp = 200;
           rect.kvx = 0; rect.kvy = 0; rect.rot = 0; rect.vr = 0;
           rect.splits = 0; rect.knockT = -9;
+          rect.pushedBy = null; rect.hitT = -9;
           list.push(rect);
           break;
         }
@@ -3819,6 +3904,7 @@ const Game = (() => {
     function openPanel(name) {
       ui.panel = name;
       ui.scroll = 0;
+      ui.gpIndex = 0;
       ui.openAt = nowMs();
       state.paused = true;
       buildPanelRows();
@@ -3831,6 +3917,8 @@ const Game = (() => {
       ui.loadout = [];
       ui.loadoutChips = [];
       ui.forgeState = { mode: null, part: null };
+      ui.gpIndex = 0;
+      ui.chatGp = 0;
       state.paused = false;
       audio.play('ui');
     }
@@ -4010,6 +4098,7 @@ const Game = (() => {
       ui.maxScroll = Math.max(0, rowCount * 52 - (panelMetrics(rowCount).panelH - 158));
       ui.scroll = utils.clamp(ui.scroll || 0, 0, ui.maxScroll);
       for (const row of rows) row.y -= ui.scroll;
+      ui.gpIndex = utils.clamp(ui.gpIndex || 0, 0, Math.max(0, rows.length - 1));
     }
 
     function enhanceAffix(part, aff) {
@@ -4902,6 +4991,12 @@ const Game = (() => {
         ctx.fillStyle = '#35e0ff';
         ctx.fillRect(trackX, thumbY, 4, thumbH);
       }
+      if (ui.items.length && ui.gpIndex >= 0 && ui.gpIndex < ui.items.length && ui.items[ui.gpIndex]) {
+        const sel = ui.items[ui.gpIndex];
+        ctx.strokeStyle = '#35e0ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sel.x - 2, sel.y - 2, sel.w + 4, sel.h + 4);
+      }
       ctx.textAlign = 'left';
       ctx.restore();
     }
@@ -4939,6 +5034,11 @@ const Game = (() => {
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 14px Consolas, monospace';
           ctx.fillText(b.label, b.x + b.w / 2, b.y + 27);
+          if (c.buttons && c.buttons[ui.chatGp] === b) {
+            ctx.strokeStyle = '#35e0ff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+          }
         }
       }
       ctx.fillStyle = 'rgba(255,255,255,0.45)';
@@ -5516,7 +5616,7 @@ const Game = (() => {
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
       openPanel, closePanel, uiClick, panelMetrics, buildPanelRows, closeChat,
-      handleClick, handleTouchPoint, portalVisible,
+      handleClick, handleTouchPoint, portalVisible, pollGamepad,
       isTouchUI: () => isTouchUI,
       touchButtons,
       audioDebug: () => audio.sounds(),
