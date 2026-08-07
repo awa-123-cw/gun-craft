@@ -1270,3 +1270,16 @@ test('电脑端竖窄窗口不显示横屏锁定', () => {
   game.update(1 / 60);
   assert.ok(game.world.time > t0, '非触摸设备竖屏不应锁定');
 });
+
+test('清房后播放胜利音效', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  for (let guard = 0; guard < 12 && !game.world.room.cleared; guard++) {
+    for (const e of [...game.world.enemies]) game.damageEnemy(e, 99999, 0);
+    for (let i = 0; i < 400; i++) game.update(1 / 120); // 覆盖 3s 波次倒计时
+  }
+  assert.strictEqual(game.world.room.cleared, true, '房间应最终清空');
+  assert.ok(game.audioDebug().includes('victory'), '清房应播放胜利音效，实际最近音效: ' + game.audioDebug().slice(-6).join(','));
+});

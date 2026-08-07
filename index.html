@@ -600,6 +600,8 @@ const Game = (() => {
       src.start();
     }
     function play(name, opt) {
+      playedLog.push(name);
+      if (playedLog.length > 50) playedLog.shift();
       const a = ac();
       if (!a) return;
       if (a.state === 'suspended') { try { a.resume(); } catch (e) {} }
@@ -666,6 +668,14 @@ const Game = (() => {
           tone(120, 220, 0.18, 'sine', 0.2);
           tone(160, 260, 0.12, 'sine', 0.12, 0.08);
           break;
+        case 'victory':
+          tone(440, 440, 0.1, 'square', 0.15);
+          tone(523.25, 523.25, 0.1, 'square', 0.15, 0.08);
+          tone(659.25, 659.25, 0.12, 'square', 0.15, 0.16);
+          tone(880, 880, 0.28, 'triangle', 0.2, 0.26);
+          tone(220, 220, 0.4, 'triangle', 0.16, 0.26);
+          tone(659.25, 659.25, 0.22, 'triangle', 0.12, 0.26);
+          break;
         case 'combo':
           {
             const c = Math.min(8, opt || 1);
@@ -686,11 +696,12 @@ const Game = (() => {
           break;
       }
     }
+    const playedLog = [];
     function resume() {
       const a = ac();
       if (a && a.state === 'suspended') { try { a.resume(); } catch (e) {} }
     }
-    return { play, ctx: ac, resume };
+    return { play, ctx: ac, resume, sounds: () => playedLog.slice() };
   })();
 
   // ===== Boss 战 BGM（机械核心）：引擎内联自 boss-music.js =====
@@ -3483,6 +3494,7 @@ const Game = (() => {
       if (needsClear) {
         setBanner('成功击败', 1.6, '门已开启');
         audio.play('door');
+        if (room.type !== 'boss') audio.play('victory');
         fx.floater(world.player.x, world.player.y - 40, '门已开启', 'normal');
       }
     }
@@ -5177,6 +5189,7 @@ const Game = (() => {
       handleClick, handleTouchPoint, portalVisible,
       isTouchUI: () => isTouchUI,
       touchButtons,
+      audioDebug: () => audio.sounds(),
       musicStatus: () => {
         if (!bossMusic) return { state: 'idle', song: null };
         const st = bossMusic.getState();
