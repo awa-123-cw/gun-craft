@@ -1674,24 +1674,34 @@ test('手柄面板：方向键选择、确认装备、取消关闭', () => {
   assert.strictEqual(game.ui.panel, 'none', '圈/○ 应关闭面板');
 });
 
-test('手柄模式下瞬身朝准星方向，键鼠模式朝鼠标位置', () => {
+test('手柄模式瞬身朝左摇杆方向（未推摇杆则朝准星），键鼠模式朝鼠标', () => {
   const { game } = makeGame();
   game.setScreen('playing');
   const p = game.world.player;
   p.x = 600; p.y = 500;
   p.aimAngle = 1.2;
   game.camera.x = p.x; game.camera.y = p.y;
-  // 手柄模式：瞬身应向当前准星方向
-  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 }; // 手柄连接但空闲
+  // 手柄连接但左摇杆未推 → 瞬身应退回准星方向
+  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 };
   game.input.padInput = true;
   game.input.dashTap = true;
   game.update(1 / 120);
   assert.ok(game.world.dash.active, '应触发瞬身');
-  assert.ok(Math.abs(game.world.dash.angle - 1.2) < 1e-6, '手柄模式应向准星方向瞬身，实际 ' + game.world.dash.angle);
+  assert.ok(Math.abs(game.world.dash.angle - 1.2) < 1e-6, '未推左摇杆应朝准星方向瞬身，实际 ' + game.world.dash.angle);
+  // 左摇杆向右下推（lx=0.6, ly=0.8）→ 瞬身朝摇杆方向
+  game.world.dash.active = false;
+  game.world.dash.cd = 0;
+  p.x = 600; p.y = 500; p.vx = 0; p.vy = 0; // 清掉摇杆移动的残余速度
+  game.camera.x = p.x; game.camera.y = p.y;
+  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0.6, ly: 0.8 };
+  game.input.dashTap = true;
+  game.update(1 / 120);
+  assert.ok(game.world.dash.active, '应再次触发瞬身');
+  assert.ok(Math.abs(game.world.dash.angle - Math.atan2(0.8, 0.6)) < 1e-6, '手柄模式应向左摇杆方向瞬身，实际 ' + game.world.dash.angle);
   // 键鼠模式：瞬身应朝鼠标方向（右侧 100px → 角度 0）
   game.world.dash.active = false;
   game.world.dash.cd = 0;
-  p.x = 600; p.y = 500; // 重置玩家与相机，避免上一次瞬身位移干扰
+  p.x = 600; p.y = 500; p.vx = 0; p.vy = 0;
   game.camera.x = p.x; game.camera.y = p.y;
   p.aimAngle = 0.5;
   game.input.gp = null;
@@ -1700,7 +1710,7 @@ test('手柄模式下瞬身朝准星方向，键鼠模式朝鼠标位置', () =>
   game.input.mouse.y = 270;
   game.input.dashTap = true;
   game.update(1 / 120);
-  assert.ok(game.world.dash.active, '应再次触发瞬身');
+  assert.ok(game.world.dash.active, '应第三次触发瞬身');
   assert.ok(Math.abs(game.world.dash.angle) < 1e-6, '键鼠模式应向鼠标方向瞬身，实际 ' + game.world.dash.angle);
 });
 

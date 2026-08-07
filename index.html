@@ -2994,7 +2994,12 @@ const Game = (() => {
       if (((input.mouse.down && !input.mouse.downPrev && input.keys.has('Space')) || input.dashTap) &&
           dash.cd <= 0 && !dash.active && state.screen === 'playing') {
         if (input.padInput) {
-          dash.angle = p.aimAngle; // 手柄模式下向当前准星方向瞬身
+          const gp2 = input.gp;
+          if (gp2 && (gp2.lx !== 0 || gp2.ly !== 0)) {
+            dash.angle = Math.atan2(gp2.ly, gp2.lx); // 手柄模式：瞬身朝左摇杆方向
+          } else {
+            dash.angle = p.aimAngle; // 左摇杆未推时退回准星方向
+          }
         } else {
           const mxw = sxToWx(input.mouse.x);
           const myw = syToWy(input.mouse.y);
