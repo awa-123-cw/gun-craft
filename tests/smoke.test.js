@@ -874,7 +874,19 @@ test('进入敌人房间 1.5 秒警觉期敌人不行动', () => {
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
   game.world.enemies.length = 0;
-  const e = game.spawnEnemy('chaser', 300, 300, 1);
+  // 障碍物变大后 300,300 可能被挡住，改找无障碍空位生成
+  const obs = combat.obstacles || [];
+  let ex = 750, ey = 550;
+  outer:
+  for (let yy = 200; yy < 900; yy += 90) {
+    for (let xx = 200; xx < 1300; xx += 90) {
+      if (!obs.some(o => xx > o.x - 18 && xx < o.x + o.w + 18 && yy > o.y - 18 && yy < o.y + o.h + 18)) {
+        ex = xx; ey = yy;
+        break outer;
+      }
+    }
+  }
+  const e = game.spawnEnemy('chaser', ex, ey, 1);
   game.world.enemies.push(e);
   const sx = e.x, sy = e.y;
   for (let i = 0; i < 144; i++) game.update(1 / 120); // 1.2s
@@ -1427,4 +1439,68 @@ test('障碍物可被击飞与击碎', () => {
   game.world.bullets.push({ x: 700, y: 520, px: 700, py: 520, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
   game.update(1 / 120);
   assert.ok(game.world.room.obstacles.length > 1, '累计伤害应分裂成多块');
+});
+
+test('障碍物分裂上限：大面积最多分裂2次，小面积最多1次', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const room = game.world.room;
+  room.obstacles = [{ x: 500, y: 300, w: 220, h: 140, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }]; // 30800 大面积
+  const fire = (ox, oy) => {
+    game.world.bullets.push({ x: ox, y: oy, px: ox, py: oy, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
+    game.update(1 / 120);
+  };
+  const target = room.obstacles[0];
+  target.hp = 0;
+  fire(600, 360);
+  assert.ok(room.obstacles.length >= 2 && room.obstacles.length <= 4, '大面积第一次应分裂 2~4 块，实际 ' + room.obstacles.length);
+  room.obstacles = [room.obstacles[0]];
+  const p2 = room.obstacles[0];
+  assert.strictEqual(p2.splits, 1, '第一轮产物 splits 应为 1');
+  assert.ok(p2.w * p2.h >= 3500, '第一轮产物面积仍应属于大面积（可再分裂一次）');
+  p2.hp = 0;
+  fire(p2.x + p2.w / 2, p2.y + p2.h / 2);
+  assert.ok(room.obstacles.length >= 2 && room.obstacles.length <= 4, '大面积第二次应再分裂 2~4 块，实际 ' + room.obstacles.length);
+  room.obstacles = [room.obstacles[0]];
+  const p3 = room.obstacles[0];
+  assert.strictEqual(p3.splits, 2, '第二轮产物 splits 应为 2');
+  assert.ok(p3.w * p3.h < 3500, '第二轮产物面积应小于 3500（到达上限）');
+  p3.hp = 0;
+  const before3 = room.obstacles.length;
+  fire(p3.x + p3.w / 2, p3.y + p3.h / 2);
+  assert.strictEqual(room.obstacles.length, before3 - 1, '到达分裂上限后应只爆炸不再生成');
+});
+
+test('瞬身推动小型障碍物并伤害路径敌人', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const pl = game.world.player;
+  pl.x = 600; pl.y = 500;
+  game.camera.x = pl.x; game.camera.y = pl.y; // 相机对准玩家，便于换算准星世界坐标
+  game.world.room.obstacles = [{ x: 630, y: 470, w: 58, h: 58, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }]; // 3364 < 3500 可推动
+  const e = game.spawnEnemy('chaser', 770, 500, 1);
+  const hp0 = e.hp;
+  game.world.enemies.push(e);
+  // 准星对准玩家右侧 100px，瞬身方向为正右方
+  game.input.mouse.x = 480 + 100 * 1.875;
+  game.input.mouse.y = 270;
+  game.input.keys.add('Space');
+  game.input.mouseHard = true; // update 内每帧据此覆盖 mouse.down
+  for (let i = 0; i < 4; i++) game.update(1 / 120); // 触发瞬身后撞向障碍物并推动
+  const o = game.world.room.obstacles[0];
+  assert.ok(Math.hypot(o.kvx, o.kvy) > 0, '瞬身应推动障碍物');
+  assert.ok(e.hp < hp0, '路径上的敌人应受到障碍物伤害');
+});
+
+test('重叠障碍物自动分离不堆叠', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.room.obstacles = [
+    { x: 600, y: 400, w: 100, h: 60, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 },
+    { x: 650, y: 430, w: 100, h: 60, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0, splits: 0, knockT: -9 }
+  ];
+  for (let i = 0; i < 60; i++) game.update(1 / 120);
+  const [a, b] = game.world.room.obstacles;
+  const overlap = a.x < b.x + b.w - 1 && a.x + a.w > b.x + 1 && a.y < b.y + b.h - 1 && a.y + a.h > b.y + 1;
+  assert.ok(!overlap, '重叠障碍物应被自动分离');
 });

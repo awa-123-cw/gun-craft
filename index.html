@@ -1723,6 +1723,7 @@ const Game = (() => {
           e.x += Math.cos(e.dashAngle) * k.dashSpeed * dt;
           e.y += Math.sin(e.dashAngle) * k.dashSpeed * dt;
           e.facing = e.dashAngle;
+          enemyPushObstacles(e, e.dashAngle);
           if (dist < e.radius + p.radius + 4) {
             damagePlayer(e.dmg, e.dashAngle, { burn: 2, dps: 3 });
             bounceDash(e);
@@ -1815,6 +1816,7 @@ const Game = (() => {
           e.x += ex.dashDirX * k.dashSpeed * dt;
           e.y += ex.dashDirY * k.dashSpeed * dt;
           e.facing = Math.atan2(ex.dashDirY, ex.dashDirX);
+          enemyPushObstacles(e, Math.atan2(ex.dashDirY, ex.dashDirX));
           if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx), { bleed: 2, dps: 2 });
           if (Math.random() < dt * 30) {
             fx.spawn({
@@ -1858,6 +1860,7 @@ const Game = (() => {
           e.x += Math.cos(e.dashAngle) * 420 * dt;
           e.y += Math.sin(e.dashAngle) * 420 * dt;
           e.facing = e.dashAngle;
+          enemyPushObstacles(e, e.dashAngle);
           if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle, { slow: 1.5, pct: 0.3 });
           if (e.stateT <= 0) { e.state = 'recover'; e.stateT = k.dashCooldown; }
         } else if (e.state === 'recover') {
@@ -2901,6 +2904,7 @@ const Game = (() => {
             life: 0.28, color: '#35e0ff', size: 7 + Math.random() * 6, angle: dash.angle
           });
         }
+        pushObstaclesWithPlayer();
         dash.ghostT += dt;
         if (dash.ghostT > 0.02) {
           dash.ghostT = 0;
@@ -3432,6 +3436,52 @@ const Game = (() => {
       }
     }
 
+    function pushObstaclesWithPlayer() {
+      const p = world.player;
+      const obs = world.room.obstacles || [];
+      for (const o of obs) {
+        if (!isPushableObstacle(o)) continue;
+        if (utils.circleRectHit(p.x, p.y, p.radius, o)) {
+          if (world.time - (o.knockT || -9) > 0.3) {
+            o.knockT = world.time;
+            o.kvx += Math.cos(world.dash.angle) * 700;
+            o.kvy += Math.sin(world.dash.angle) * 700;
+            o.vr += utils.rand(-4, 4);
+            const dmg = Math.min(50, (o.w * o.h) / 80);
+            for (const e of world.enemies) {
+              if (e.dead) continue;
+              if (Math.hypot(e.x - o.x, e.y - o.y) < 140 + e.radius) {
+                damageEnemy(e, dmg, Math.atan2(e.y - o.y, e.x - o.x), {});
+              }
+            }
+            audio.play('boom');
+          }
+        }
+      }
+    }
+
+    function enemyPushObstacles(e, dirAngle) {
+      const obs = world.room.obstacles || [];
+      for (const o of obs) {
+        if (!isPushableObstacle(o)) continue;
+        if (Math.hypot(o.x + o.w / 2 - e.x, o.y + o.h / 2 - e.y) < e.radius + Math.max(o.w, o.h) / 2 + 6) {
+          if (world.time - (o.knockT || -9) > 0.3) {
+            o.knockT = world.time;
+            o.kvx += Math.cos(dirAngle) * 550;
+            o.kvy += Math.sin(dirAngle) * 550;
+            o.vr += utils.rand(-4, 4);
+            const dmg = Math.min(50, (o.w * o.h) / 80);
+            damagePlayer(dmg, dirAngle);
+            audio.play('boom');
+          }
+        }
+      }
+    }
+
+    function isPushableObstacle(o) {
+      return (o.w * o.h) < 3500;
+    }
+
     function updateObstacles(dt) {
       const obs = world.room.obstacles || [];
       for (const o of obs) {
@@ -3444,13 +3494,37 @@ const Game = (() => {
         o.x = utils.clamp(o.x, 20, ROOM_W - o.w - 20);
         o.y = utils.clamp(o.y, 20, ROOM_H - o.h - 20);
       }
+      // 障碍物彼此分离，避免堆叠
+      for (let i = 0; i < obs.length; i++) {
+        for (let j = i + 1; j < obs.length; j++) {
+          const a = obs[i], b = obs[j];
+          if (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y) {
+            const ox = Math.min(a.x + a.w - b.x, b.x + b.w - a.x);
+            const oy = Math.min(a.y + a.h - b.y, b.y + b.h - a.y);
+            if (ox < oy) {
+              const push = ox / 2;
+              if (a.x < b.x) { a.x -= push; b.x += push; } else { a.x += push; b.x -= push; }
+            } else {
+              const push = oy / 2;
+              if (a.y < b.y) { a.y -= push; b.y += push; } else { a.y += push; b.y -= push; }
+            }
+          }
+        }
+      }
     }
 
     function splitObstacle(o) {
       const list = world.room.obstacles;
       const idx = list.indexOf(o);
       if (idx >= 0) utils.swapRemove(list, idx);
-      const pieces = 2 + Math.floor(Math.random() * 3); // 2~4 块
+      const isLarge = (o.w * o.h) >= 3500;
+      const maxSplits = isLarge ? 2 : 1;
+      if ((o.splits || 0) >= maxSplits) {
+        fx.burst(o.x + o.w / 2, o.y + o.h / 2, '#ff8f3d', 12);
+        audio.play('boom');
+        return;
+      }
+      const pieces = isLarge ? (2 + Math.floor(Math.random() * 3)) : (2 + Math.floor(Math.random() * 2)); // 2~4 / 2~3
       fx.burst(o.x + o.w / 2, o.y + o.h / 2, '#8fa6b8', 10);
       audio.play('boom');
       for (let i = 0; i < pieces; i++) {
@@ -3458,10 +3532,13 @@ const Game = (() => {
         const nh = Math.max(14, o.h * 0.45);
         const ang = Math.random() * Math.PI * 2;
         const sp = 90 + Math.random() * 160;
+        const spread = (i - (pieces - 1) / 2) * (o.w * 0.35);
         list.push({
-          x: o.x + (o.w - nw) / 2, y: o.y + (o.h - nh) / 2, w: nw, h: nh,
-          delay: 0, hp: 80, kvx: Math.cos(ang) * sp, kvy: Math.sin(ang) * sp,
-          rot: Math.random() * 0.5, vr: (Math.random() - 0.5) * 8
+          x: o.x + (o.w - nw) / 2 + spread, y: o.y + (o.h - nh) / 2 + utils.rand(-10, 10),
+          w: nw, h: nh, delay: 0, hp: 80,
+          kvx: Math.cos(ang) * sp, kvy: Math.sin(ang) * sp,
+          rot: Math.random() * 0.5, vr: (Math.random() - 0.5) * 8,
+          splits: (o.splits || 0) + 1, knockT: -9
         });
       }
     }
@@ -3504,8 +3581,8 @@ const Game = (() => {
       const list = [];
       for (let i = 0; i < count; i++) {
         for (let tries = 0; tries < 24; tries++) {
-          const w = utils.randInt(60, 130);
-          const h = utils.randInt(40, 90);
+          const w = utils.randInt(90, 195);
+          const h = utils.randInt(60, 135);
           const x = utils.rand(140, ROOM_W - 140 - w);
           const y = utils.rand(140, ROOM_H - 140 - h);
           const rect = { x, y, w, h };
@@ -3519,6 +3596,7 @@ const Game = (() => {
           rect.delay = list.length * 0.18;
           rect.hp = 200;
           rect.kvx = 0; rect.kvy = 0; rect.rot = 0; rect.vr = 0;
+          rect.splits = 0; rect.knockT = -9;
           list.push(rect);
           break;
         }
@@ -4914,14 +4992,12 @@ const Game = (() => {
         ctx.strokeRect(-o.w / 2 + 5, -o.h / 2 + 5, o.w - 10, o.h - 10);
         ctx.fillStyle = 'rgba(255,255,255,0.07)';
         ctx.fillRect(-o.w / 2 + 3, -o.h / 2 + 3, o.w - 6, 5);
-        if (o.hp !== undefined && (1 - o.hp / 200) > 0.3) {
-          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(-o.w / 4, o.h / 4);
-          ctx.lineTo(0, 0);
-          ctx.lineTo(o.w / 4, -o.h / 4);
-          ctx.stroke();
+        if (o.hp !== undefined && o.hp < 200) {
+          const dmgPct = utils.clamp(1 - o.hp / 200, 0, 1);
+          const red = 0.7 * dmgPct;
+          const flash = 0.55 + 0.45 * Math.sin(world.time * (4 + 14 * dmgPct));
+          ctx.fillStyle = 'rgba(255, 40, 60, ' + (red * flash).toFixed(3) + ')';
+          ctx.fillRect(-o.w / 2, -o.h / 2, o.w, o.h);
         }
         ctx.restore();
         ctx.globalAlpha = 1;
@@ -5214,7 +5290,7 @@ const Game = (() => {
     function drawMinimap() {
       if (!world.map) return;
       const mobile = isTouchUI;
-      const cell = mobile ? 15 : 21, gap = 2;
+      const cell = mobile ? 30 : 42, gap = 3;
       const gw = world.map.gridW || 3;
       const gh = world.map.gridH || 3;
       const mx = view.w - 14 - gw * (cell + gap);
@@ -5240,7 +5316,7 @@ const Game = (() => {
         ctx.fillRect(px, py, cell, cell);
         if (!room.visited && ['treasure', 'shop', 'coin', 'forge', 'elite'].includes(room.type)) {
           ctx.fillStyle = 'rgba(255,255,255,0.85)';
-          ctx.font = 'bold ' + (mobile ? 9 : 12) + 'px Consolas, monospace';
+          ctx.font = 'bold ' + (mobile ? 12 : 18) + 'px Consolas, monospace';
           ctx.textAlign = 'center';
           ctx.fillText('?', px + cell / 2, py + cell / 2 + (mobile ? 3 : 4));
         }
