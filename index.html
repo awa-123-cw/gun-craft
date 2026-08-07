@@ -1452,7 +1452,7 @@ const Game = (() => {
       mouse: { x: 0, y: 0, down: false, downPrev: false }, mouseHard: false,
       wheelDelta: 0, frameHandled: false,
       tapQueue: new Set(), dashTap: false,
-      gp: null, gpPrev: null, padInput: false,
+      gp: null, gpPrev: null, padInput: false, padLast: -1e9,
       touch: { moveId: null, moveOrigin: { x: 0, y: 0 }, moveVec: { x: 0, y: 0 }, aimId: null, aimPos: { x: 0, y: 0 }, firing: false }
     };
     const view = { w: canvas.clientWidth || canvas.width || 960, h: canvas.clientHeight || canvas.height || 540 };
@@ -2430,6 +2430,7 @@ const Game = (() => {
       input.gp = null;
       input.gpPrev = null;
       input.padInput = false;
+      input.padLast = -1e9;
       input.touch.moveId = null;
       input.touch.moveVec = { x: 0, y: 0 };
       input.touch.aimId = null;
@@ -2462,8 +2463,11 @@ const Game = (() => {
     }
     function onKeyUp(e) { input.keys.delete(e.code); }
     function onMouseMove(e) {
-      input.padInput = false; // 鼠标一动切回键鼠模式
-      if (canvas.style) canvas.style.cursor = 'crosshair'; // 鼠标一动恢复光标
+      // 手柄最近 0.4 秒内有输入时忽略鼠标移动（防手柄自带鼠标模拟/误触把光标抢回来）
+      if (nowMs() - (input.padLast || -1e9) > 400) {
+        input.padInput = false; // 真正切回键鼠模式
+        if (canvas.style) canvas.style.cursor = 'crosshair';
+      }
       const rect = canvas.getBoundingClientRect();
       input.mouse.x = e.clientX - rect.left;
       input.mouse.y = e.clientY - rect.top;
@@ -2692,7 +2696,7 @@ const Game = (() => {
       const pads = navigator.getGamepads();
       const gp = pads && pads[0];
       const prev = input.gpPrev;
-      if (!gp) { input.gp = null; input.gpPrev = null; input.padInput = false; if (canvas.style) canvas.style.cursor = 'crosshair'; return; }
+      if (!gp) { input.gp = null; input.gpPrev = null; input.padInput = false; input.padLast = -1e9; if (canvas.style) canvas.style.cursor = 'crosshair'; return; }
       const dead = 0.25;
       const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
       const cur = {
@@ -2712,6 +2716,7 @@ const Game = (() => {
           cur.switchR || cur.switchL || cur.cancel || cur.navUp || cur.navDown || cur.navLeft || cur.navRight ||
           cur.lx !== 0 || cur.ly !== 0 || cur.ax !== 0 || cur.ay !== 0) {
         input.padInput = true;
+        input.padLast = nowMs(); // 记录手柄最近输入时间
       }
       if (input.padInput && canvas.style) canvas.style.cursor = 'none';
       if (prev) {
@@ -2988,9 +2993,13 @@ const Game = (() => {
       }
       if (((input.mouse.down && !input.mouse.downPrev && input.keys.has('Space')) || input.dashTap) &&
           dash.cd <= 0 && !dash.active && state.screen === 'playing') {
-        const mxw = sxToWx(input.mouse.x);
-        const myw = syToWy(input.mouse.y);
-        dash.angle = Math.atan2(myw - p.y, mxw - p.x);
+        if (input.padInput) {
+          dash.angle = p.aimAngle; // 手柄模式下向当前准星方向瞬身
+        } else {
+          const mxw = sxToWx(input.mouse.x);
+          const myw = syToWy(input.mouse.y);
+          dash.angle = Math.atan2(myw - p.y, mxw - p.x);
+        }
         dash.active = true;
         dash.t = 0.13;
         dash.cd = 3 * ((p.armorSpec && p.armorSpec.dashCdMul) || 1);
@@ -5625,7 +5634,7 @@ const Game = (() => {
       spawnEnemy, damageEnemy, damagePlayer, killEnemy, maybeDrop,
       equipPart, pushPart, spawnPickup,
       openPanel, closePanel, uiClick, panelMetrics, buildPanelRows, closeChat,
-      handleClick, handleTouchPoint, portalVisible, pollGamepad,
+      handleClick, handleTouchPoint, portalVisible, pollGamepad, onMouseMove,
       isTouchUI: () => isTouchUI,
       touchButtons,
       audioDebug: () => audio.sounds(),

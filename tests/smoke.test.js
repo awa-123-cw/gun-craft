@@ -1673,3 +1673,47 @@ test('手柄面板：方向键选择、确认装备、取消关闭', () => {
   game.update(1 / 120);
   assert.strictEqual(game.ui.panel, 'none', '圈/○ 应关闭面板');
 });
+
+test('手柄模式下瞬身朝准星方向，键鼠模式朝鼠标位置', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const p = game.world.player;
+  p.x = 600; p.y = 500;
+  p.aimAngle = 1.2;
+  game.camera.x = p.x; game.camera.y = p.y;
+  // 手柄模式：瞬身应向当前准星方向
+  game.input.gp = { fire: false, ax: 0, ay: 0, lx: 0, ly: 0 }; // 手柄连接但空闲
+  game.input.padInput = true;
+  game.input.dashTap = true;
+  game.update(1 / 120);
+  assert.ok(game.world.dash.active, '应触发瞬身');
+  assert.ok(Math.abs(game.world.dash.angle - 1.2) < 1e-6, '手柄模式应向准星方向瞬身，实际 ' + game.world.dash.angle);
+  // 键鼠模式：瞬身应朝鼠标方向（右侧 100px → 角度 0）
+  game.world.dash.active = false;
+  game.world.dash.cd = 0;
+  p.x = 600; p.y = 500; // 重置玩家与相机，避免上一次瞬身位移干扰
+  game.camera.x = p.x; game.camera.y = p.y;
+  p.aimAngle = 0.5;
+  game.input.gp = null;
+  game.input.padInput = false;
+  game.input.mouse.x = 480 + 100 * 1.875;
+  game.input.mouse.y = 270;
+  game.input.dashTap = true;
+  game.update(1 / 120);
+  assert.ok(game.world.dash.active, '应再次触发瞬身');
+  assert.ok(Math.abs(game.world.dash.angle) < 1e-6, '键鼠模式应向鼠标方向瞬身，实际 ' + game.world.dash.angle);
+});
+
+test('手柄输入后 0.4s 内的鼠标移动不会抢回光标（防手柄鼠标模拟）', () => {
+  const { ctx, game } = makeGame();
+  const canvas = ctx.document.getElementById('game');
+  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 960, height: 540 });
+  ctx.navigator.getGamepads = () => [fakePad([true])];
+  game.pollGamepad();
+  assert.strictEqual(canvas.style.cursor, 'none', '手柄输入应隐藏光标');
+  game.onMouseMove({ clientX: 200, clientY: 200 }); // 手柄自带鼠标模拟/误触产生的 mousemove
+  assert.strictEqual(canvas.style.cursor, 'none', '手柄输入后 0.4s 内的鼠标移动不应恢复光标');
+  game.input.padLast = -1e9; // 模拟超过 0.4s 未使用手柄
+  game.onMouseMove({ clientX: 220, clientY: 220 }); // 真实鼠标移动
+  assert.strictEqual(canvas.style.cursor, 'crosshair', '真实鼠标移动应恢复光标');
+});
