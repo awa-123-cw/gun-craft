@@ -262,3 +262,97 @@ test('renderBlock 一次性调度整段循环（68 Kick / 32 军鼓）', () => {
   const snares = inRange.filter(e => e.kind === 'noise' && e.t >= from && e.t < from + BGM_DATA.loopDur);
   assert.strictEqual(snares.length, 32 + 68 + 80, '军鼓 32 + Kick 瞬态 68 + 踩镲 80（12×4 + 4×8）');
 });
+
+// ---------- 敌人房间 BGM ----------
+test('room 曲目：128BPM、8 小节、数据完整', () => {
+  const R = BGM_DATA.room;
+  assert.strictEqual(R.tempo, 128);
+  assert.strictEqual(R.bars, 8);
+  assert.ok(Math.abs(R.stepDur - 60 / 128 / 4) < 1e-9, '16 分音符 = 0.1171875s');
+  assert.ok(Math.abs(R.barDur - (60 / 128 / 4) * 16) < 1e-9);
+  assert.ok(Math.abs(R.loopDur - (60 / 128 / 4) * 16 * 8) < 1e-9);
+  const simple = new Set(['R', '0', '1', 'X']);
+  for (const [name, tr] of Object.entries(R.tracks)) {
+    assert.strictEqual(tr.rowMap.length, 8, name + ' rowMap 应对应 8 小节');
+    for (const row of tr.rows) {
+      const tokens = norm(row).split(' ');
+      assert.strictEqual(tokens.length, 16, name + ' 每行应为 16 步');
+      for (const tk of tokens) {
+        if (simple.has(tk) || BGM_DATA.chords[tk]) continue;
+        assert.match(tk, /^[A-G][0-9]$/, name + ' 非法 token: ' + tk);
+      }
+    }
+    for (const bar of tr.rowMap) {
+      assert.ok(bar >= 0 && bar < tr.rows.length, name + ' rowMap 越界');
+    }
+  }
+});
+
+test('start(room) 无引子直接循环：首小节 2 Kick / 8 噪声', () => {
+  const { ctx, events } = makeMockCtx();
+  const m = createBossMusic(ctx);
+  m.start('room');
+  assert.strictEqual(m.getSong(), 'room');
+  assert.strictEqual(m.getState(), 'loop', '房间曲目应无引子直接进入循环');
+  const R = BGM_DATA.room;
+  const ls = m.loopStart();
+  for (let k = 0; k <= 16; k++) {
+    ctx.currentTime = ls + k * R.stepDur + 0.001;
+    m.update();
+  }
+  const kicks = events.filter(e =>
+    e.kind === 'osc' && e.type === 'sine' && e.f0 >= 100 && e.f0 <= 200 &&
+    e.t >= ls && e.t < ls + R.barDur);
+  assert.strictEqual(kicks.length, 2, '房间首小节应为 2 个 Kick（拍 1/3），实际 ' + kicks.length);
+  const noise = events.filter(e => e.kind === 'noise' && e.t >= ls && e.t < ls + R.barDur);
+  assert.strictEqual(noise.length, 8, '军鼓2 + 踩镲4 + Kick瞬态2 = 8，实际 ' + noise.length);
+  const triangles = events.filter(e =>
+    e.kind === 'osc' && e.type === 'triangle' &&
+    e.t >= ls && e.t < ls + R.barDur);
+  assert.strictEqual(triangles.length, 8, '房间琶音应为 8 音/小节（8 分音符），实际 ' + triangles.length);
+});
+
+test('room 模式下 setPhase 安全无操作', () => {
+  const { ctx } = makeMockCtx();
+  const m = createBossMusic(ctx);
+  m.start('room');
+  assert.doesNotThrow(() => {
+    m.setPhase(2);
+    m.setPhase(3);
+    m.update();
+  });
+  assert.strictEqual(m.getPhase(), 3, '房间曲目不参与阶段分层，但 API 不应抛错');
+});
+
+// ---------- 彩蛋 Boss BGM ----------
+test('surprise 曲目：引子含 boing（square）与 scratch，随后复用 Boss 主循环', () => {
+  const { ctx, events } = makeMockCtx();
+  const m = createBossMusic(ctx);
+  m.start('surprise');
+  assert.strictEqual(m.getSong(), 'surprise');
+  assert.strictEqual(m.getState(), 'intro');
+  const boings = events.filter(e => e.kind === 'osc' && e.type === 'square');
+  assert.ok(boings.length >= 8, '彩蛋引子应有 boing 音（square），实际 ' + boings.length);
+  const scratchAt = 0.05 + 28 * BGM_DATA.stepDur; // 引子第 2 小节第 13 步
+  assert.ok(events.some(e => e.kind === 'noise' && Math.abs(e.t - scratchAt) < 1e-6),
+    '彩蛋引子应在指定位置调度 scratch');
+  // 推进过引子后进入 Boss 主循环
+  const ls = m.loopStart();
+  for (let k = 0; k <= 16; k++) {
+    ctx.currentTime = ls + k * BGM_DATA.stepDur + 0.001;
+    m.update();
+  }
+  assert.strictEqual(m.getState(), 'loop');
+  const kicks = events.filter(e =>
+    e.kind === 'osc' && e.type === 'sine' && e.f0 >= 100 && e.f0 <= 200 &&
+    e.t >= ls && e.t < ls + BGM_DATA.barDur);
+  assert.strictEqual(kicks.length, 4, '彩蛋主循环复用 Boss 循环（4 Kick/小节），实际 ' + kicks.length);
+});
+
+test('surprise/room 为非法模式时回退到 boss', () => {
+  const { ctx } = makeMockCtx();
+  const m = createBossMusic(ctx);
+  m.start('nonsense');
+  assert.strictEqual(m.getSong(), 'boss');
+  assert.strictEqual(m.getState(), 'intro');
+});

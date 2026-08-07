@@ -138,6 +138,71 @@
       "klaxon": "A4 R R R E4 R R R A4 R R R E4 R R R A4 R R R E4 R R R A4 R R R E4 R R R R R A4 R R R E4 R R R A4 R R R E4 R A4 R E4 R A4 R E4 R A4 R E4 R A4 R E4 R"
     },
     "introRiserAtEnd": true,
+    "surpriseIntroBars": 4,
+    "surpriseRiserAtEnd": true,
+    "surpriseIntroTracks": {
+      "kick": "1000000000000000100000000000000010000000100000001000100010001000",
+      "snare": "0000000000000000000000000000000000000000000000000000100000001000",
+      "hat": "0000000000000000000000000000000000100010001000101010101010101010",
+      "boing": "C5 R R R E5 R R R G5 R R R E5 R R R C5 R E5 R G5 R C6 R R R R R R R R R R R R R R R R R R R R R R R R R R R R R",
+      "scratch": "R R R R R R R R R R R R R R R R R R R R R R R R R R R R X R R R R R R R R R R R R R R R R R R R R R R R R R R R R R",
+      "boom": "R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R 1 R R R"
+    },
+    "room": {
+      "tempo": 128,
+      "bars": 8,
+      "stepDur": 0.1171875,
+      "barDur": 1.875,
+      "loopDur": 15.0,
+      "levels": {
+        "1": ["kick", "snare", "hat", "bass", "arp", "lead"]
+      },
+      "tracks": {
+        "kick": {
+          "rows": ["1000000010000000"],
+          "rowMap": [0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        "snare": {
+          "rows": ["0000100000001000"],
+          "rowMap": [0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        "hat": {
+          "rows": ["0010001000100010"],
+          "rowMap": [0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        "bass": {
+          "rows": [
+            "A1 R A1 R A1 R A1 R A1 R A1 R A1 R A2 R",
+            "F1 R F1 R F1 R F1 R F1 R F1 R F1 R F2 R",
+            "C2 R C2 R C2 R C2 R C2 R C2 R C2 R C3 R",
+            "G1 R G1 R G1 R G1 R G1 R G1 R G1 R G2 R"
+          ],
+          "rowMap": [0, 1, 2, 3, 0, 1, 2, 3]
+        },
+        "arp": {
+          "rows": [
+            "A3 R C4 R E4 R C4 R A3 R C4 R E4 R C4 R",
+            "F3 R A3 R C4 R A3 R F3 R A3 R C4 R A3 R",
+            "C4 R E4 R G4 R E4 R C4 R E4 R G4 R E4 R",
+            "G3 R B3 R D4 R B3 R G3 R B3 R D4 R B3 R"
+          ],
+          "rowMap": [0, 1, 2, 3, 0, 1, 2, 3]
+        },
+        "lead": {
+          "rows": [
+            "E4 R R R R R R R C4 R R R R R R R",
+            "F4 R R R R R R R A3 R R R R R R R",
+            "G4 R R R R R R R E4 R R R R R R R",
+            "B3 R R R R R R R D4 R R R R R R R",
+            "A4 R R R R R R R E4 R R R R R R R",
+            "F4 R R R R R R R C4 R R R R R R R",
+            "E4 R R R R R R R G4 R R R R R R R",
+            "D4 R R R R R R R B3 R R R R R R R"
+          ],
+          "rowMap": [0, 1, 2, 3, 4, 5, 6, 7]
+        }
+      }
+    },
     "victory": [
       { "s": 0, "t": "boom" },
       { "s": 0, "t": "chord", "v": "A", "d": 8 },
@@ -164,11 +229,35 @@
     const masterGain = opts.masterGain || 0.22;
     const out = opts.output || (ctx ? ctx.destination : null);
     const D = BGM_DATA;
-    const stepDur = D.stepDur;
-    const LOOP_STEPS = D.bars * 16;
+    // 曲目：boss（默认）| surprise（彩蛋 Boss：惊奇引子 + Boss 主循环）| room（敌人房间）
+    const SONGS = {
+      boss: {
+        bars: D.bars, stepDur: D.stepDur, barDur: D.barDur, loopDur: D.loopDur,
+        introBars: D.introBars, introDur: D.introDur,
+        levels: D.levels, tracks: D.tracks,
+        introTracks: D.introTracks, introRiserAtEnd: D.introRiserAtEnd,
+        introTrackList: ['kick', 'snare', 'hat', 'klaxon']
+      },
+      surprise: {
+        bars: D.bars, stepDur: D.stepDur, barDur: D.barDur, loopDur: D.loopDur,
+        introBars: D.surpriseIntroBars, introDur: D.surpriseIntroBars * D.stepDur * 16,
+        levels: D.levels, tracks: D.tracks,
+        introTracks: D.surpriseIntroTracks, introRiserAtEnd: D.surpriseRiserAtEnd,
+        introTrackList: ['kick', 'snare', 'hat', 'boing', 'scratch', 'boom']
+      },
+      room: {
+        bars: D.room.bars, stepDur: D.room.stepDur, barDur: D.room.barDur, loopDur: D.room.loopDur,
+        introBars: 0, introDur: 0,
+        levels: D.room.levels, tracks: D.room.tracks,
+        introTracks: null, introRiserAtEnd: false,
+        introTrackList: []
+      }
+    };
 
     let state = 'idle';   // idle | intro | loop | stopped
     let phase = 1;
+    let songKey = 'boss';
+    let song = SONGS.boss;
     let startTime = 0;    // 引子开始时刻
     let loopStart = 0;    // 当前循环周期起始时刻
     let sAbs = 0;         // 循环内已调度步数
@@ -177,17 +266,26 @@
 
     // 行数据可能是紧凑串（鼓点 1000100010001000）或空格分隔（音符行），统一展开
     const norm = row => (row.indexOf(' ') >= 0 ? row : row.split('').join(' '));
-    const TRACKS = {};
-    for (const k of Object.keys(D.tracks)) {
-      const tr = D.tracks[k];
-      TRACKS[k] = {
-        rowMap: tr.rowMap,
-        phaseRows: tr.phaseRows || null,
-        rows: tr.rows.map(norm)
-      };
+    const cache = {};
+    function prepare(key) {
+      if (cache[key]) return cache[key];
+      const s = SONGS[key];
+      const tracks = {};
+      for (const k of Object.keys(s.tracks)) {
+        const tr = s.tracks[k];
+        tracks[k] = {
+          rowMap: tr.rowMap,
+          phaseRows: tr.phaseRows || null,
+          rows: tr.rows.map(norm)
+        };
+      }
+      const intro = {};
+      if (s.introTracks) {
+        for (const k of Object.keys(s.introTracks)) intro[k] = norm(s.introTracks[k]);
+      }
+      cache[key] = { tracks, intro };
+      return cache[key];
     }
-    const INTRO = {};
-    for (const k of Object.keys(D.introTracks)) INTRO[k] = norm(D.introTracks[k]);
 
     if (ctx && out) {
       try {
@@ -199,9 +297,10 @@
     const canPlay = !!master;
 
     function activeTracks() {
-      const set = new Set(D.levels['1']);
-      if (phase >= 2) for (const t of D.levels['2']) set.add(t);
-      if (phase >= 3) for (const t of D.levels['3']) set.add(t);
+      const lv = song.levels;
+      const set = new Set(lv['1']);
+      if (phase >= 2 && lv['2']) for (const t of lv['2']) set.add(t);
+      if (phase >= 3 && lv['3']) for (const t of lv['3']) set.add(t);
       return set;
     }
 
@@ -355,6 +454,25 @@
       noteF(f0 * 1.02, t, 0.24, 'sawtooth', 0.4, 1400);
       noteF(f0 * 0.98, t, 0.24, 'sawtooth', 0.4, 1400);
     }
+    function boing(t, f0) {
+      if (!canPlay) return;
+      const a = ctx.createOscillator();
+      const g = ctx.createGain();
+      a.type = 'square';
+      setFreq(a, f0, t);
+      rampFreq(a, f0 * 1.5, t + 0.16); // 上滑音 "boing"
+      g.gain.setValueAtTime(0.0001, t);
+      rampGain(g, 0.3, t + 0.01);
+      rampGain(g, 0.0001, t + 0.2);
+      a.connect(g);
+      g.connect(master);
+      a.start(t);
+      if (a.stop) a.stop(t + 0.24);
+    }
+    function scratch(t) {
+      noiseAt(t, 0.12, 0.3, 'bandpass', 900, 2600);
+      noiseAt(t + 0.08, 0.08, 0.2, 'bandpass', 2200, 800);
+    }
     function boom(t) {
       if (!canPlay) return;
       const a = ctx.createOscillator();
@@ -381,6 +499,9 @@
       if (trackName === 'hat') { hat(t); return; }
       if (trackName === 'riser') { if (token === 'X') riser(t, 0.35); return; }
       if (trackName === 'klaxon') { klaxon(t, freqOf(token)); return; }
+      if (trackName === 'boing') { boing(t, freqOf(token)); return; }
+      if (trackName === 'scratch') { if (token === 'X') scratch(t); return; }
+      if (trackName === 'boom') { if (token === '1') boom(t); return; }
       if (trackName === 'bass') {
         bassNote(t, freqOf(token), !BASS_BASE.has(token));
         return;
@@ -396,15 +517,17 @@
 
     function scheduleLoopRange(fromTime, toTime) {
       if (!canPlay) return;
+      const prep = prepare(songKey);
       const active = [...activeTracks()];
-      while (sAbs < LOOP_STEPS) {
-        const t = loopStart + sAbs * stepDur;
+      const steps = song.bars * 16;
+      while (sAbs < steps) {
+        const t = loopStart + sAbs * song.stepDur;
         if (t >= toTime) break;
         if (t >= fromTime - 1e-6) {
           const bar = Math.floor(sAbs / 16);
           const st = sAbs % 16;
           for (const trackName of active) {
-            const tr = TRACKS[trackName];
+            const tr = prep.tracks[trackName];
             let rowIdx = tr.rowMap[bar];
             if (tr.phaseRows && tr.phaseRows[String(phase)] !== undefined) {
               rowIdx = tr.phaseRows[String(phase)];
@@ -414,35 +537,42 @@
         }
         sAbs++;
       }
-      if (sAbs >= LOOP_STEPS) {
+      if (sAbs >= steps) {
         sAbs = 0;
-        loopStart += D.loopDur;
+        loopStart += song.loopDur;
         scheduledThrough = loopStart;
       }
     }
 
     function scheduleIntro() {
-      for (const trackName of ['kick', 'snare', 'hat', 'klaxon']) {
-        const tokens = INTRO[trackName].split(' ');
+      const prep = prepare(songKey);
+      for (const trackName of song.introTrackList) {
+        const tokens = prep.intro[trackName].split(' ');
         for (let s = 0; s < tokens.length; s++) {
-          scheduleStep(startTime + s * stepDur, tokens[s], trackName);
+          scheduleStep(startTime + s * song.stepDur, tokens[s], trackName);
         }
       }
-      if (D.introRiserAtEnd) riser(startTime + D.introDur - 0.5, 0.5);
+      if (song.introRiserAtEnd) riser(startTime + song.introDur - 0.5, 0.5);
     }
 
     // ---------- 公开 API ----------
-    function start() {
+    function start(mode) {
       if (state === 'intro' || state === 'loop') return;
       if (!ctx || !canPlay) return;
       if (ctx.resume) { try { ctx.resume(); } catch (e) {} }
+      songKey = SONGS[mode] ? mode : 'boss';
+      song = SONGS[songKey];
       phase = 1;
       startTime = ctx.currentTime + 0.05;
-      loopStart = startTime + D.introDur;
+      loopStart = startTime + song.introDur;
       sAbs = 0;
       scheduledThrough = loopStart;
-      state = 'intro';
-      scheduleIntro();
+      if (song.introBars > 0) {
+        state = 'intro';
+        scheduleIntro();
+      } else {
+        state = 'loop';
+      }
     }
 
     function update() {
@@ -461,8 +591,10 @@
       const next = Math.max(1, Math.min(3, n | 0));
       if (next > phase) {
         phase = next;
-        const t = (at !== undefined && at !== null) ? at : (ctx ? ctx.currentTime + 0.02 : 0);
-        riser(t, 0.6);
+        if (song.levels['2'] || song.levels['3']) {
+          const t = (at !== undefined && at !== null) ? at : (ctx ? ctx.currentTime + 0.02 : 0);
+          riser(t, 0.6);
+        }
       } else {
         phase = next;
       }
@@ -473,16 +605,16 @@
       state = 'stopped';
       if (!canPlay) return;
       for (const ev of D.victory) {
-        const t = t0 + ev.s * stepDur;
+        const t = t0 + ev.s * song.stepDur;
         if (ev.t === 'boom') {
           boom(t);
         } else if (ev.t === 'chord') {
           const oct = ev.o || 0;
           for (const name of D.chords[ev.v]) {
-            noteF(freqOf(name) * Math.pow(2, oct), t, (ev.d || 8) * stepDur, 'sawtooth', 0.2, 2600);
+            noteF(freqOf(name) * Math.pow(2, oct), t, (ev.d || 8) * song.stepDur, 'sawtooth', 0.2, 2600);
           }
         } else if (ev.t === 'note') {
-          noteF(freqOf(ev.v), t, (ev.d || 3) * stepDur, 'triangle', 0.3, 5000);
+          noteF(freqOf(ev.v), t, (ev.d || 3) * song.stepDur, 'triangle', 0.3, 5000);
         }
       }
     }
@@ -499,7 +631,8 @@
       start, update, setPhase, victory, stop, renderBlock,
       loopStart: () => loopStart,
       getPhase: () => phase,
-      getState: () => state
+      getState: () => state,
+      getSong: () => songKey
     };
   }
 

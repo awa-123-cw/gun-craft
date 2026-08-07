@@ -1194,3 +1194,44 @@ test('松开左键后不再开火，且可再次瞬身', () => {
   game.update(1 / 120);
   assert.ok(game.world.dash.active, '松开后再按应可瞬身');
 });
+
+test('敌人房间播放房间 BGM，离开后停止', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  let st = game.musicStatus();
+  assert.strictEqual(st.song, 'room', '战斗房应播放房间 BGM');
+  assert.strictEqual(st.state, 'loop');
+  const other = game.world.map.rooms.find(r => !['start', 'combat', 'elite', 'boss'].includes(r.type));
+  assert.ok(other, '地图应有非战斗房间');
+  game.enterRoom(other.x, other.y);
+  st = game.musicStatus();
+  assert.ok(!st.song, '离开敌人房间应停止音乐');
+  assert.strictEqual(st.state, 'stopped');
+});
+
+test('彩蛋 Boss 播放彩蛋 BGM，未击败离开房间后停止', () => {
+  const { game } = makeGame();
+  game.startMap(123);
+  const n = game.world.startNpc;
+  game.world.bullets.push({ x: n.x + 10, y: n.y, vx: 0, vy: 0, damage: 5, friendly: true, life: 5, size: 3, trail: [] });
+  game.update(1 / 120);
+  game.handleClick(game.ui.chat.buttons[0].x + 5, game.ui.chat.buttons[0].y + 5);
+  let st = game.musicStatus();
+  assert.strictEqual(st.song, 'surprise', '彩蛋 Boss 应播放彩蛋 BGM');
+  // 未击败直接离开房间
+  const combat = game.world.map.rooms.find(r => r.type === 'combat');
+  game.enterRoom(combat.x, combat.y);
+  st = game.musicStatus();
+  assert.strictEqual(st.song, 'room', '离开后应切换为房间 BGM，而不是继续播彩蛋 Boss 音乐');
+});
+
+test('正常 Boss 房进入播放 Boss BGM', () => {
+  const { game } = makeGame();
+  game.startMap(555);
+  game.enterRoom(game.world.map.boss.x, game.world.map.boss.y);
+  const st = game.musicStatus();
+  assert.strictEqual(st.song, 'boss');
+  assert.ok(st.state === 'intro' || st.state === 'loop', 'Boss 音乐应处于引子或循环状态');
+});

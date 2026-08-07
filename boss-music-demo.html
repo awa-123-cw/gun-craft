@@ -76,6 +76,10 @@
       <button id="export">⬇ 导出 WAV</button>
     </div>
     <div class="row">
+      <button id="egg">✦ 彩蛋 Boss</button>
+      <button id="room">▤ 敌人房间</button>
+    </div>
+    <div class="row">
       <button class="phase" data-phase="1">阶段 1 弹幕</button>
       <button class="phase" data-phase="2">阶段 2 召唤</button>
       <button class="phase" data-phase="3">阶段 3 狂暴</button>
@@ -115,10 +119,12 @@
       }
 
       function setStatus(t) { statusEl.innerHTML = t; }
+      const SONG_NAMES = { boss: 'Boss 战', surprise: '彩蛋 Boss', room: '敌人房间' };
       function renderStatus() {
         if (!music) return;
         const st = { intro: '引子警报', loop: '主循环', stopped: '已停止', idle: '待命' }[music.getState()] || music.getState();
-        setStatus('状态：<b>' + st + '</b>　·　音乐阶段：<b>阶段 ' + music.getPhase() + '</b>　·　循环 16 小节 / 25.6s');
+        const song = music.getSong();
+        setStatus('状态：<b>' + st + '</b>　·　曲目：<b>' + (SONG_NAMES[song] || song) + '</b>　·　音乐阶段：<b>阶段 ' + music.getPhase() + '</b>');
         phaseBtns.forEach(b => b.classList.toggle('active', Number(b.dataset.phase) === music.getPhase()));
       }
 
@@ -132,6 +138,14 @@
       });
       document.getElementById('victory').addEventListener('click', () => {
         if (music) music.victory();
+      });
+      document.getElementById('egg').addEventListener('click', () => {
+        if (!ensureCtx()) return;
+        music.start('surprise');
+      });
+      document.getElementById('room').addEventListener('click', () => {
+        if (!ensureCtx()) return;
+        music.start('room');
       });
       phaseBtns.forEach(b => b.addEventListener('click', () => {
         if (!ensureCtx()) return;
