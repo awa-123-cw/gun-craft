@@ -454,7 +454,7 @@ test('背包过多时可滚动且不越界', () => {
 test('Boss 血量翻倍且普通战斗房怪物量翻倍', () => {
   const { game } = makeGame();
   const b = game.spawnEnemy('boss', 750, 550, 1);
-  assert.strictEqual(b.maxHp, 840, 'Boss 血量应为 840');
+  assert.strictEqual(b.maxHp, 1344, 'Boss 血量应为 1344');
   game.startMap(777);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
   game.enterRoom(combat.x, combat.y);
@@ -714,7 +714,7 @@ test('护甲回复改为低频少量', () => {
   for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s
   assert.strictEqual(game.world.player.armor, 0, '2.5s 间隔前不应恢复');
   for (let i = 0; i < 300; i++) game.update(1 / 120); // 累计 3s
-  assert.ok(game.world.player.armor >= 8, '每次恢复约 9 点');
+  assert.ok(game.world.player.armor >= 4, '每次恢复约 5.4 点');
 });
 
 test('攻击初始房 NPC 触发战/不战选项', () => {
@@ -738,7 +738,7 @@ test('选择战斗后 NPC 变巨型 Boss，击败直接通关，战中死亡重�
   game.uiClick(game.ui.chat.buttons[0].x + 5, game.ui.chat.buttons[0].y + 5);
   const boss = game.world.enemies.find(e => e.specialNpc);
   assert.ok(boss, '应生成战斗 NPC');
-  assert.strictEqual(boss.maxHp, 8400, '血量应为 Boss 的 1000%');
+  assert.strictEqual(boss.maxHp, 13440, '血量应为 Boss 的 1000%（Boss +60% 后）');
   assert.ok(boss.scale >= 3, '体型应为 300%');
   boss.hp = 1;
   game.damageEnemy(boss, 5, 0, {});
@@ -1376,4 +1376,55 @@ test('新机制：吸能甲击杀提升护甲上限', () => {
   game.world.enemies.push(e);
   game.damageEnemy(e, 5, 0, {});
   assert.strictEqual(game.world.player.maxArmor, before + 1, '击杀后护甲上限应+1');
+});
+
+test('开箱房物品固定：重复按 E 物品一致', () => {
+  const { game } = makeGame();
+  game.startMap(999);
+  const tr = game.world.map.rooms.find(r => r.type === 'treasure');
+  game.enterRoom(tr.x, tr.y);
+  game.input.pressedSet.add('KeyE');
+  game.update(1 / 120);
+  const first = game.world.chestPart.id;
+  game.closePanel();
+  game.input.pressedSet.add('KeyE');
+  game.update(1 / 120);
+  assert.strictEqual(game.world.chestPart.id, first, '重复开箱物品应一致');
+});
+
+test('敌人元素攻击：射手子弹施加减速', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.player.hp = 100;
+  game.world.player.armor = 0;
+  game.world.bullets.push({ x: 750, y: 550, px: 750, py: 550, vx: 0, vy: 0, damage: 5, friendly: false, life: 5, size: 4, kind: 'enemy', el: { slow: 2, pct: 0.25 } });
+  game.update(1 / 120);
+  assert.ok(game.world.player.slowT > 0, '应被减速');
+});
+test('敌人元素攻击：分裂虫毒液施加中毒', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.player.hp = 100;
+  game.world.player.armor = 0;
+  game.world.bullets.push({ x: 750, y: 550, px: 750, py: 550, vx: 0, vy: 0, damage: 5, friendly: false, life: 5, size: 4, kind: 'enemy', el: { poison: 3, dps: 3 } });
+  game.update(1 / 120);
+  assert.ok(game.world.player.poisonT > 0, '应中毒');
+  const hp = game.world.player.hp;
+  for (let i = 0; i < 60; i++) game.update(1 / 120); // 0.5s DoT
+  assert.ok(game.world.player.hp < hp, '中毒应持续掉血');
+});
+
+test('障碍物可被击飞与击碎', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  game.world.room.obstacles = [{ x: 700, y: 500, w: 100, h: 60, hp: 200, kvx: 0, kvy: 0, rot: 0, vr: 0, delay: 0 }];
+  game.world.bullets.push({ x: 700, y: 520, px: 700, py: 520, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
+  game.update(1 / 120);
+  const o = game.world.room.obstacles[0];
+  assert.ok(o.hp < 200, '低伤害应造成伤害');
+  assert.ok(o.kvx !== 0 || o.kvy !== 0, '低伤害应击飞障碍物');
+  o.hp = 0;
+  game.world.bullets.push({ x: 700, y: 520, px: 700, py: 520, vx: 0, vy: 0, damage: 10, friendly: true, life: 5, size: 3, bounce: 0, fireZone: false, kind: 'standard' });
+  game.update(1 / 120);
+  assert.ok(game.world.room.obstacles.length > 1, '累计伤害应分裂成多块');
 });

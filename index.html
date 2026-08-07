@@ -532,42 +532,42 @@ const Game = (() => {
   const ENEMY_KINDS = {
     chaser: {
       name: '冲锋者', color: '#ff4d5e', coreColor: '#7a0d1e',
-      hp: 34, radius: 18, speed: 70, dmg: 18,
+      hp: 54.4, radius: 18, speed: 70, dmg: 18,
       behavior: 'chase_telegraph_dash', dashSpeed: 520, telegraphT: 0.3, cooldown: 1.1,
       engageRange: 340, shardCount: 3, coinTier: 1
     },
     shooter: {
       name: '射手', color: '#ff9f43', coreColor: '#7a3b00',
-      hp: 22, radius: 16, speed: 60, dmg: 10,
+      hp: 35.2, radius: 16, speed: 60, dmg: 10,
       behavior: 'keep_distance_shoot', range: 330, fireInterval: 1.4, bulletSpeed: 260,
       burst: 3, burstSpread: 0.09, coinTier: 1
     },
     splitter: {
       name: '分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
-      hp: 16, radius: 14, speed: 110, dmg: 8,
+      hp: 25.6, radius: 14, speed: 110, dmg: 8,
       behavior: 'splitter', splitKind: 'splitter_mini', splitCount: 2, maxGen: 1,
       spitRange: 150, spitInterval: 1.6, coinTier: 1
     },
     splitter_mini: {
       name: '小分裂虫', color: '#7ef29a', coreColor: '#1d6b33',
-      hp: 8, radius: 8, speed: 130, dmg: 5,
+      hp: 12.8, radius: 8, speed: 130, dmg: 5,
       behavior: 'splitter', splitKind: null, splitCount: 0, maxGen: 1, coinTier: 1
     },
     buzzer: {
       name: '穿梭者', color: '#4dc9ff', coreColor: '#0b3d5e',
-      hp: 12, radius: 12, speed: 0, dmg: 10,
+      hp: 19.2, radius: 12, speed: 0, dmg: 10,
       behavior: 'buzzer', dashSpeed: 600, dashT: 0.7, waitT: 0.35,
       dashShots: 2, dashShotSpeed: 360, coinTier: 2
     },
     elite: {
       name: '护卫精英', color: '#b06cff', coreColor: '#3d0f73',
-      hp: 90, radius: 30, speed: 55, dmg: 20,
+      hp: 144, radius: 30, speed: 55, dmg: 20,
       behavior: 'elite', shield: 40, maxShield: 40, shieldRegen: 30,
       dashCooldown: 2.2, telegraphT: 0.35, coinTier: 3
     },
     boss: {
       name: '机械核心', color: '#ff3d81', coreColor: '#5c0a2e',
-      hp: 840, radius: 58, speed: 38, dmg: 24,
+      hp: 1344, radius: 58, speed: 38, dmg: 24,
       behavior: 'boss', ringSegs: 14, rotSpeed: 0.6,
       burstCd: 1.8, summonCd: 10, coinTier: 5
     }
@@ -1398,6 +1398,7 @@ const Game = (() => {
         x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
         hp: 100, maxHp: 100, radius: 14, speed: 260,
         aimAngle: 0, invuln: 0, recoil: 0,
+        burnT: 0, burnDps: 0, poisonT: 0, poisonDps: 0, bleedT: 0, bleedDps: 0, slowT: 0, slowPct: 0,
         armor: 0, maxArmor: 0, armorCap: 0,
         armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0,
           killGrowth: 0, killHeal: 0, dodge: 0, echoSurge: 0, echoSurgeT: 0, burnDmgMul: 1, dashCdMul: 1 }
@@ -1600,13 +1601,13 @@ const Game = (() => {
       return e;
     }
 
-    function spawnEnemyBullet(x, y, angle, speed, damage, color, kind, life) {
+    function spawnEnemyBullet(x, y, angle, speed, damage, color, kind, life, el) {
       world.bullets.push({
         x, y, px: x, py: y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         damage, pierce: 0, friendly: false,
-        life: life || 6, color: color || '#ff9f43', size: 4, kind: kind || 'enemy'
+        life: life || 6, color: color || '#ff9f43', size: 4, kind: kind || 'enemy', el: el || null
       });
     }
 
@@ -1714,7 +1715,7 @@ const Game = (() => {
               spawnEnemyBullet(
                 e.x, e.y,
                 Math.atan2(dy, dx) + (s2 - (shards - 1) / 2) * 0.16,
-                300, e.dmg * 0.5, e.color
+                300, e.dmg * 0.5, e.color, 'enemy', 6, { burn: 1.5, dps: 2 }
               );
             }
           }
@@ -1723,7 +1724,7 @@ const Game = (() => {
           e.y += Math.sin(e.dashAngle) * k.dashSpeed * dt;
           e.facing = e.dashAngle;
           if (dist < e.radius + p.radius + 4) {
-            damagePlayer(e.dmg, e.dashAngle);
+            damagePlayer(e.dmg, e.dashAngle, { burn: 2, dps: 3 });
             bounceDash(e);
           } else {
             for (const other of world.enemies) {
@@ -1762,7 +1763,7 @@ const Game = (() => {
             spawnEnemyBullet(
               e.x, e.y,
               baseA + (b2 - (burst - 1) / 2) * (k.burstSpread || 0.06),
-              k.bulletSpeed, e.dmg, e.color
+              k.bulletSpeed, e.dmg, e.color, 'enemy', 6, { slow: 2, pct: 0.25 }
             );
           }
         }
@@ -1779,10 +1780,10 @@ const Game = (() => {
         if (e.attackT <= 0 && dist < (k.spitRange || 150)) {
           e.attackT = k.spitInterval || 1.6;
           const baseA = Math.atan2(dy, dx);
-          spawnEnemyBullet(e.x, e.y, baseA - 0.25, 190, e.dmg * 0.7, e.color);
-          spawnEnemyBullet(e.x, e.y, baseA + 0.25, 190, e.dmg * 0.7, e.color);
+          spawnEnemyBullet(e.x, e.y, baseA - 0.25, 190, e.dmg * 0.7, e.color, 'enemy', 6, { poison: 3, dps: 3 });
+          spawnEnemyBullet(e.x, e.y, baseA + 0.25, 190, e.dmg * 0.7, e.color, 'enemy', 6, { poison: 3, dps: 3 });
         }
-        if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx));
+        if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx), { poison: 2, dps: 2 });
       } else if (e.behavior === 'buzzer') {
         const ex = e.extra;
         if (e.state === 'idle' || e.state === 'wait') {
@@ -1806,7 +1807,7 @@ const Game = (() => {
               spawnEnemyBullet(
                 e.x, e.y,
                 baseA + (s2 - (shots - 1) / 2) * 0.15,
-                k.dashShotSpeed || 360, e.dmg * 0.5, e.color
+                k.dashShotSpeed || 360, e.dmg * 0.5, e.color, 'enemy', 6, { bleed: 2, dps: 2 }
               );
             }
           }
@@ -1814,7 +1815,7 @@ const Game = (() => {
           e.x += ex.dashDirX * k.dashSpeed * dt;
           e.y += ex.dashDirY * k.dashSpeed * dt;
           e.facing = Math.atan2(ex.dashDirY, ex.dashDirX);
-          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx));
+          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx), { bleed: 2, dps: 2 });
           if (Math.random() < dt * 30) {
             fx.spawn({
               kind: 'spark', x: e.x, y: e.y,
@@ -1849,7 +1850,7 @@ const Game = (() => {
             e.state = 'dash';
             e.stateT = 0.25;
             for (let a2 = 0; a2 < Math.PI * 2; a2 += Math.PI / 3) {
-              spawnEnemyBullet(e.x, e.y, a2, 240, e.dmg * 0.6, e.color);
+              spawnEnemyBullet(e.x, e.y, a2, 240, e.dmg * 0.6, e.color, 'enemy', 6, { burn: 1.5, dps: 2 });
             }
             audio.play('zap');
           }
@@ -1857,7 +1858,7 @@ const Game = (() => {
           e.x += Math.cos(e.dashAngle) * 420 * dt;
           e.y += Math.sin(e.dashAngle) * 420 * dt;
           e.facing = e.dashAngle;
-          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle);
+          if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle, { slow: 1.5, pct: 0.3 });
           if (e.stateT <= 0) { e.state = 'recover'; e.stateT = k.dashCooldown; }
         } else if (e.state === 'recover') {
           if (e.stateT <= 0) e.state = 'idle';
@@ -1893,11 +1894,11 @@ const Game = (() => {
           const count = e.phase >= 3 ? 24 : 12;
           const off = (e.phase >= 2 ? 15 : 0) * Math.PI / 180;
           for (let a2 = off; a2 < Math.PI * 2 + off; a2 += Math.PI * 2 / count) {
-            spawnEnemyBullet(e.x, e.y, a2, 260, e.dmg, '#ff3d81');
+            spawnEnemyBullet(e.x, e.y, a2, 260, e.dmg, '#ff3d81', 'enemy', 6, { burn: 2, dps: 4 });
           }
           if (e.phase === 1 && Math.random() < 0.3) {
             for (let f = -1; f <= 1; f++) {
-              spawnEnemyBullet(e.x, e.y, Math.atan2(dy, dx) + f * 0.22, 300, e.dmg, '#ff3d81');
+              spawnEnemyBullet(e.x, e.y, Math.atan2(dy, dx) + f * 0.22, 300, e.dmg, '#ff3d81', 'enemy', 6, { burn: 2, dps: 4 });
             }
           }
           audio.play('zap');
@@ -2002,7 +2003,11 @@ const Game = (() => {
           audio.play('zap');
         }
       }
-      if (dist < 130) applyRawDamage(5 * dt); // 毒光环
+      if (dist < 130) {
+        e.auraT = (e.auraT || 0) - dt;
+        if (e.auraT <= 0) { e.auraT = 0.8; applyPlayerStatus('poison', 2.5, 4); }
+        applyRawDamage(5 * dt, false);
+      }
     }
 
     // ===== fx（粒子/弹壳/曳光，对象池）=====
@@ -2201,7 +2206,15 @@ const Game = (() => {
       if (e.scale > 1) fx.slowmo(0.3, 0.25);
     }
 
-    function damagePlayer(dmg, angle) {
+    function applyPlayerStatus(kind, dur, value) {
+      const p = world.player;
+      if (kind === 'burn') { p.burnT = dur; p.burnDps = value; }
+      else if (kind === 'poison') { p.poisonT = dur; p.poisonDps = value; }
+      else if (kind === 'bleed') { p.bleedT = dur; p.bleedDps = value; }
+      else if (kind === 'slow') { p.slowT = dur; p.slowPct = value; }
+    }
+
+    function damagePlayer(dmg, angle, el) {
       const p = world.player;
       if (p.invuln > 0) return;
       const as = p.armorSpec || {};
@@ -2220,6 +2233,12 @@ const Game = (() => {
       d *= (p.armorSpec ? p.armorSpec.dmgMul : 1);
       p.hp -= d;
       p.invuln = 0.4;
+      if (el) {
+        if (el.burn) { applyPlayerStatus('burn', el.burn, el.dps); fx.floater(p.x, p.y - 36, '燃烧', 'normal'); }
+        if (el.slow) { applyPlayerStatus('slow', el.slow, el.pct); fx.floater(p.x, p.y - 36, '减速', 'normal'); }
+        if (el.poison) { applyPlayerStatus('poison', el.poison, el.dps); fx.floater(p.x, p.y - 36, '中毒', 'normal'); }
+        if (el.bleed) { applyPlayerStatus('bleed', el.bleed, el.dps); fx.floater(p.x, p.y - 36, '流血', 'normal'); }
+      }
       if (d > 0) {
         if (as.echoSurge) as.echoSurgeT = 2;
         const th = gun().stats.thorns || 0;
@@ -2349,6 +2368,7 @@ const Game = (() => {
         x: ROOM_W / 2, y: ROOM_H / 2, vx: 0, vy: 0,
         hp: 100, maxHp: 100, radius: 14, speed: 260,
         aimAngle: 0, invuln: 0, recoil: 0,
+        burnT: 0, burnDps: 0, poisonT: 0, poisonDps: 0, bleedT: 0, bleedDps: 0, slowT: 0, slowPct: 0,
         armor: 0, maxArmor: 0, armorCap: 0,
         armorSpec: { speedMul: 1, dmgMul: 1, kbMul: 1, regenMul: 1, regenFlat: 0, hpRegen: 0,
           killGrowth: 0, killHeal: 0, dodge: 0, echoSurge: 0, echoSurgeT: 0, burnDmgMul: 1, dashCdMul: 1 }
@@ -2758,7 +2778,7 @@ const Game = (() => {
               }
             } else if (world.chest && !world.chest.opened &&
                 utils.distance(p.x, p.y, world.chest.x, world.chest.y) < 100) {
-              world.chestPart = partsEngine.rollPart();
+              world.chestPart = world.chest.part;
               openPanel('chest');
             } else if (world.coinPile && !world.coinPile.collected &&
                 utils.distance(p.x, p.y, world.coinPile.x, world.coinPile.y) < 90) {
@@ -2853,7 +2873,7 @@ const Game = (() => {
       const ACCEL = 1500;
       p.vx += moveX * ACCEL * dt;
       p.vy += moveY * ACCEL * dt;
-      const maxSpd = p.speed * ((p.armorSpec && p.armorSpec.speedMul) || 1);
+      const maxSpd = p.speed * ((p.armorSpec && p.armorSpec.speedMul) || 1) * (p.slowT > 0 ? (1 - (p.slowPct || 0)) : 1);
       const spd = Math.hypot(p.vx, p.vy);
       if (spd > maxSpd) {
         p.vx = (p.vx / spd) * maxSpd;
@@ -2953,6 +2973,7 @@ const Game = (() => {
       updateChains(dt);
       updateDashGhosts(dt);
       updateImpactMarks(dt);
+      updateObstacles(dt);
       if (world.portal && !world.portal.active) {
         world.portal.t += dt;
         if (world.portal.t >= 1.2) world.portal.active = true;
@@ -2972,10 +2993,18 @@ const Game = (() => {
         world.armorTick += dt;
         if (world.armorTick >= 2.4999) { // 回复频率降低150%（间隔×2.5）
           world.armorTick -= 2.5;
-          const amount = (6 * rm + (as.regenFlat || 0)) * 2.5 * 0.6; // 每次回复值 -40%
+          const amount = (6 * rm + (as.regenFlat || 0)) * 2.5 * 0.36; // 每次回复值再 -40%（累计 -64%）
           p.armor = Math.min(p.maxArmor, p.armor + amount);
         }
       }
+      if (p.burnT > 0) { p.burnT -= dt; applyRawDamage(p.burnDps * dt, true); }
+      if (p.poisonT > 0) { p.poisonT -= dt; applyRawDamage(p.poisonDps * dt, false); }
+      if (p.bleedT > 0) {
+        p.bleedT -= dt;
+        p.hp -= p.bleedDps * dt; // 流血无视护甲
+        if (p.hp <= 0) { p.hp = 0; if (world.fightNpc) restart(); else setScreen('dead'); }
+      }
+      if (p.slowT > 0) { p.slowT -= dt; }
       if (state.screen === 'playing' && p.hp > 0 && p.hp < p.maxHp * 0.3) {
         world.lowhpT -= dt;
         if (world.lowhpT <= 0) {
@@ -3161,15 +3190,28 @@ const Game = (() => {
         }
         const obs = world.room.obstacles || [];
         let hitObs = false;
+        let hitObj = null;
         for (const o of obs) {
           if (utils.circleRectHit(b.x, b.y, b.size, o)) {
             fx.sparks(b.x, b.y, '#8fa6b8', 4);
             world.impactMarks.push({ x: b.x, y: b.y, life: 2.5, color: b.color });
             hitObs = true;
+            hitObj = o;
             break;
           }
         }
         if (hitObs) {
+          if (hitObj) {
+            const bd = b.damage || 1;
+            hitObj.hp -= bd;
+            const kx = Math.cos(Math.atan2(b.vy, b.vx));
+            const ky = Math.sin(Math.atan2(b.vy, b.vx));
+            const knock = bd < 30 ? 40 : 12;
+            hitObj.kvx += kx * knock;
+            hitObj.kvy += ky * knock;
+            hitObj.vr += (Math.random() - 0.5) * (bd < 30 ? 10 : 4);
+            if (hitObj.hp <= 0) splitObstacle(hitObj);
+          }
           if (b.friendly && b.bounce > 0) {
             b.bounce--;
             b.vx = -b.vx;
@@ -3251,7 +3293,7 @@ const Game = (() => {
           }
         } else {
           if (Math.hypot(p.x - b.x, p.y - b.y) < p.radius + b.size) {
-            damagePlayer(b.damage, Math.atan2(b.vy, b.vx));
+            damagePlayer(b.damage, Math.atan2(b.vy, b.vx), b.el);
             if (b.kind === 'poison') spawnPoisonZone(b.x, b.y, 46);
             if (b.fireZone) spawnFlameZone(b.x, b.y);
             utils.swapRemove(world.bullets, i);
@@ -3390,6 +3432,40 @@ const Game = (() => {
       }
     }
 
+    function updateObstacles(dt) {
+      const obs = world.room.obstacles || [];
+      for (const o of obs) {
+        o.x += o.kvx * dt;
+        o.y += o.kvy * dt;
+        o.kvx *= Math.exp(-4 * dt);
+        o.kvy *= Math.exp(-4 * dt);
+        o.rot += o.vr * dt;
+        o.vr *= Math.exp(-4 * dt);
+        o.x = utils.clamp(o.x, 20, ROOM_W - o.w - 20);
+        o.y = utils.clamp(o.y, 20, ROOM_H - o.h - 20);
+      }
+    }
+
+    function splitObstacle(o) {
+      const list = world.room.obstacles;
+      const idx = list.indexOf(o);
+      if (idx >= 0) utils.swapRemove(list, idx);
+      const pieces = 2 + Math.floor(Math.random() * 3); // 2~4 块
+      fx.burst(o.x + o.w / 2, o.y + o.h / 2, '#8fa6b8', 10);
+      audio.play('boom');
+      for (let i = 0; i < pieces; i++) {
+        const nw = Math.max(18, o.w * 0.45);
+        const nh = Math.max(14, o.h * 0.45);
+        const ang = Math.random() * Math.PI * 2;
+        const sp = 90 + Math.random() * 160;
+        list.push({
+          x: o.x + (o.w - nw) / 2, y: o.y + (o.h - nh) / 2, w: nw, h: nh,
+          delay: 0, hp: 80, kvx: Math.cos(ang) * sp, kvy: Math.sin(ang) * sp,
+          rot: Math.random() * 0.5, vr: (Math.random() - 0.5) * 8
+        });
+      }
+    }
+
     // ===== 房间流程 =====
     function startMap(seed, layer) {
       world.layer = layer || 1;
@@ -3441,6 +3517,8 @@ const Game = (() => {
           if (room.doors.e && rect.x + rect.w > ROOM_W - 80) continue;
           if (list.some(o => utils.rectsOverlap(o.x - 30, o.y - 30, o.w + 60, o.h + 60, rect.x, rect.y, rect.w, rect.h))) continue;
           rect.delay = list.length * 0.18;
+          rect.hp = 200;
+          rect.kvx = 0; rect.kvy = 0; rect.rot = 0; rect.vr = 0;
           list.push(rect);
           break;
         }
@@ -3563,7 +3641,7 @@ const Game = (() => {
         room.alertT = 1.5;
         startBossMusic('boss');
       } else if (room.type === 'treasure') {
-        world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false };
+        world.chest = { x: ROOM_W / 2, y: ROOM_H / 2, opened: false, part: partsEngine.rollPart() };
       } else if (room.type === 'coin') {
         world.coinPile = {
           x: ROOM_W / 2, y: ROOM_H / 2,
@@ -3645,6 +3723,7 @@ const Game = (() => {
     function openPanel(name) {
       ui.panel = name;
       ui.scroll = 0;
+      ui.openAt = world.time;
       state.paused = true;
       buildPanelRows();
       audio.play('ui');
@@ -3715,8 +3794,8 @@ const Game = (() => {
       const boss = spawnEnemy('boss', n.x, n.y, 1);
       boss.specialNpc = true;
       boss.scale = 3; // 保持 NPC 造型放大 300%
-      boss.maxHp = 8400; // 血量 = Boss 的 1000%
-      boss.hp = 8400;
+      boss.maxHp = 13440; // 血量 = Boss 的 1000%（Boss 已 +60%）
+      boss.hp = 13440;
       boss.renderScale = 0.1;
       boss.growT = 0;
       world.enemies.push(boss);
@@ -4595,6 +4674,13 @@ const Game = (() => {
       ctx.fillStyle = 'rgba(4, 8, 14, 0.82)';
       ctx.fillRect(0, 0, view.w, view.h);
       const { panelW, panelH, px, py } = panelMetrics();
+      const openT = utils.clamp((world.time - (ui.openAt || -9)) * 6, 0, 1);
+      const sc = 0.92 + 0.08 * openT;
+      ctx.save();
+      ctx.globalAlpha = openT;
+      ctx.translate(view.w / 2, view.h / 2);
+      ctx.scale(sc, sc);
+      ctx.translate(-view.w / 2, -view.h / 2);
       ctx.fillStyle = '#111827';
       ctx.strokeStyle = '#35e0ff';
       ctx.lineWidth = 2;
@@ -4763,7 +4849,8 @@ const Game = (() => {
       ctx.textAlign = 'right';
       ctx.fillText('右键关闭', bx + bw - 14, by + bh - 12);
       ctx.textAlign = 'left';
-    }
+
+      ctx.restore();    }
 
     function drawScanline() {
       const r = world.room;
@@ -4810,20 +4897,33 @@ const Game = (() => {
           continue;
         }
         const alpha = Math.min(1, local / 0.15);
+        ctx.save();
+        ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+        ctx.rotate(o.rot || 0);
         ctx.globalAlpha = alpha;
         ctx.fillStyle = '#101826';
-        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.fillRect(-o.w / 2, -o.h / 2, o.w, o.h);
         ctx.strokeStyle = ac;
         ctx.lineWidth = 2;
         ctx.shadowColor = ac;
         ctx.shadowBlur = 8;
-        ctx.strokeRect(o.x, o.y, o.w, o.h);
+        ctx.strokeRect(-o.w / 2, -o.h / 2, o.w, o.h);
         ctx.shadowBlur = 0;
         ctx.strokeStyle = 'rgba(255,255,255,0.14)';
         ctx.lineWidth = 1;
-        ctx.strokeRect(o.x + 5, o.y + 5, o.w - 10, o.h - 10);
+        ctx.strokeRect(-o.w / 2 + 5, -o.h / 2 + 5, o.w - 10, o.h - 10);
         ctx.fillStyle = 'rgba(255,255,255,0.07)';
-        ctx.fillRect(o.x + 3, o.y + 3, o.w - 6, 5);
+        ctx.fillRect(-o.w / 2 + 3, -o.h / 2 + 3, o.w - 6, 5);
+        if (o.hp !== undefined && (1 - o.hp / 200) > 0.3) {
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(-o.w / 4, o.h / 4);
+          ctx.lineTo(0, 0);
+          ctx.lineTo(o.w / 4, -o.h / 4);
+          ctx.stroke();
+        }
+        ctx.restore();
         ctx.globalAlpha = 1;
       }
     }
@@ -4958,6 +5058,7 @@ const Game = (() => {
 
       ctx.textAlign = 'right';
       ctx.fillStyle = g.mag === 0 ? '#ff4d5e' : '#ffd166';
+      ctx.globalAlpha = g.mag === 0 ? 0.6 + 0.4 * Math.sin(world.time * 8) : 1;
       if (mobile) {
         ctx.font = 'bold 13px Consolas, monospace';
         ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, 64);
@@ -4972,6 +5073,7 @@ const Game = (() => {
         ctx.fillStyle = 'rgba(255, 77, 94, 0.8)';
         ctx.font = '11px Consolas, monospace';
         ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
+        ctx.globalAlpha = 1;
       } else {
         ctx.fillText(g.mag + ' / ' + g.stats.magSize, view.w - 14, view.h - 18);
         if (g.reloading) {
@@ -4985,6 +5087,7 @@ const Game = (() => {
         ctx.fillStyle = 'rgba(255, 77, 94, 0.7)';
         ctx.font = '14px Consolas, monospace';
         ctx.fillText('击杀 ' + world.stats.kills + '  ◆ ' + world.coins, view.w - 14, 24);
+        ctx.globalAlpha = 1;
       }
       ctx.textAlign = 'center';
       ctx.fillStyle = accent();
@@ -5111,7 +5214,7 @@ const Game = (() => {
     function drawMinimap() {
       if (!world.map) return;
       const mobile = isTouchUI;
-      const cell = mobile ? 10 : 14, gap = 2;
+      const cell = mobile ? 15 : 21, gap = 2;
       const gw = world.map.gridW || 3;
       const gh = world.map.gridH || 3;
       const mx = view.w - 14 - gw * (cell + gap);
@@ -5135,6 +5238,12 @@ const Game = (() => {
         const color = room.type === 'start' ? accent() : (MINIMAP_COLORS[room.type] || '#666666');
         ctx.fillStyle = room.visited ? color : 'rgba(255,255,255,0.14)';
         ctx.fillRect(px, py, cell, cell);
+        if (!room.visited && ['treasure', 'shop', 'coin', 'forge', 'elite'].includes(room.type)) {
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.font = 'bold ' + (mobile ? 9 : 12) + 'px Consolas, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('?', px + cell / 2, py + cell / 2 + (mobile ? 3 : 4));
+        }
         if (world.mapInfo.roomPos.x === room.x && world.mapInfo.roomPos.y === room.y) {
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 2;
