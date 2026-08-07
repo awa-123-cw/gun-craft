@@ -939,10 +939,37 @@ test('进入房间时出现在门那一侧', () => {
   const { game } = makeGame();
   game.startMap(999);
   const combat = game.world.map.rooms.find(r => r.type === 'combat');
-  game.enterRoom(combat.x, combat.y, 'e');
-  assert.ok(game.world.player.x > 1200, '从东门进入应靠右');
+  game.enterRoom(combat.x, combat.y, 'e'); // 从左往右穿过东门 → 应出现在东门（右侧）
+  assert.ok(game.world.player.x < 300, '从东门进入应靠左（门的这一侧）');
   game.enterRoom(combat.x, combat.y, 'n');
-  assert.ok(game.world.player.y < 200, '从北门进入应靠上');
+  assert.ok(game.world.player.y > 900, '从北门进入应靠下（门的这一侧）');
+});
+
+test('子弹耗尽自动换弹', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const g = game.gun();
+  g.mag = 0;
+  g.reloading = false;
+  game.update(1 / 120);
+  assert.ok(g.reloading, '弹匣为 0 应自动换弹');
+  for (let i = 0; i < 200; i++) game.update(1 / 120);
+  assert.strictEqual(g.mag, g.stats.magSize, '自动换弹完成后弹匣满');
+});
+
+test('敌人朝向指示标跟随面向方向', () => {
+  const { game } = makeGame();
+  game.setScreen('playing');
+  const e = game.spawnEnemy('chaser', 100, 100, 1);
+  game.world.player.x = 300;
+  game.world.player.y = 100;
+  game.world.enemies.push(e);
+  for (let i = 0; i < 10; i++) game.update(1 / 120);
+  assert.ok(Math.abs(e.facing) < 0.1, '敌人应面向玩家（右侧），实际=' + e.facing);
+  game.world.player.x = 100;
+  game.world.player.y = 400;
+  for (let i = 0; i < 10; i++) game.update(1 / 120);
+  assert.ok(e.facing > Math.PI / 2 - 0.2 && e.facing < Math.PI / 2 + 0.2, '敌人应面向玩家（下方）');
 });
 
 test('触摸按钮：交互/换弹/切枪通过 tapQueue 生效', () => {

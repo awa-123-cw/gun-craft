@@ -784,7 +784,7 @@ const Game = (() => {
         behavior: k.behavior,
         state: 'idle', stateT: 0, flash: 0,
         kbvx: 0, kbvy: 0, hitCd: 0, dead: false,
-        dashAngle: 0, fireT: k.fireInterval || 0, attackT: 0,
+        dashAngle: 0, fireT: k.fireInterval || 0, attackT: 0, facing: 0,
         shield: k.shield || 0, maxShield: k.maxShield || (k.shield || 0),
         shieldRegen: k.shieldRegen || 0, shieldDelay: 0,
         extra: { gen: 0, target: null, waitT: 0, dashT: 0, dashDirX: 0, dashDirY: 0, flank: Math.random() < 0.5 ? -1 : 1 },
@@ -886,6 +886,7 @@ const Game = (() => {
       const k = ENEMY_KINDS[e.kind];
 
       e.stateT -= dt;
+      e.facing = Math.atan2(dy, dx); // 默认面向玩家
       if (e.behavior === 'chase_telegraph_dash') {
         const spd = e.speed * (e.slowT > 0 ? (1 - (e.slowPct || 0)) : 1);
         if (e.state === 'idle') {
@@ -915,6 +916,7 @@ const Game = (() => {
         } else if (e.state === 'dash') {
           e.x += Math.cos(e.dashAngle) * k.dashSpeed * dt;
           e.y += Math.sin(e.dashAngle) * k.dashSpeed * dt;
+          e.facing = e.dashAngle;
           if (dist < e.radius + p.radius + 4) {
             damagePlayer(e.dmg, e.dashAngle);
             bounceDash(e);
@@ -1006,6 +1008,7 @@ const Game = (() => {
         } else if (e.state === 'dash') {
           e.x += ex.dashDirX * k.dashSpeed * dt;
           e.y += ex.dashDirY * k.dashSpeed * dt;
+          e.facing = Math.atan2(ex.dashDirY, ex.dashDirX);
           if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, Math.atan2(dy, dx));
           if (Math.random() < dt * 30) {
             fx.spawn({
@@ -1048,6 +1051,7 @@ const Game = (() => {
         } else if (e.state === 'dash') {
           e.x += Math.cos(e.dashAngle) * 420 * dt;
           e.y += Math.sin(e.dashAngle) * 420 * dt;
+          e.facing = e.dashAngle;
           if (dist < e.radius + p.radius + 4) damagePlayer(e.dmg, e.dashAngle);
           if (e.stateT <= 0) { e.state = 'recover'; e.stateT = k.dashCooldown; }
         } else if (e.state === 'recover') {
@@ -2104,6 +2108,10 @@ const Game = (() => {
         g.reloading = true;
         g.reloadT = g.stats.reloadTime;
       }
+      if (g.mag <= 0 && !g.reloading) { // 自动换弹
+        g.reloading = true;
+        g.reloadT = g.stats.reloadTime;
+      }
       if (input.mouse.down && !world.dash.active && !g.reloading && g.mag > 0 && g.cooldown <= 0) {
         g.cooldown = 1 / g.stats.fireRate;
         g.mag--;
@@ -2408,7 +2416,7 @@ const Game = (() => {
           if (room.doors.w && rect.x < 80) continue;
           if (room.doors.e && rect.x + rect.w > ROOM_W - 80) continue;
           if (list.some(o => utils.rectsOverlap(o.x - 30, o.y - 30, o.w + 60, o.h + 60, rect.x, rect.y, rect.w, rect.h))) continue;
-          rect.delay = list.length * 0.35;
+          rect.delay = list.length * 0.18;
           list.push(rect);
           break;
         }
@@ -2472,10 +2480,10 @@ const Game = (() => {
       world.startNpc = null;
       world.forgeNpc = null;
       let px = ROOM_W / 2, py = ROOM_H / 2;
-      if (fromDir === 'n') { px = ROOM_W / 2; py = 130; }
-      else if (fromDir === 's') { px = ROOM_W / 2; py = ROOM_H - 130; }
-      else if (fromDir === 'w') { px = 130; py = ROOM_H / 2; }
-      else if (fromDir === 'e') { px = ROOM_W - 130; py = ROOM_H / 2; }
+      if (fromDir === 'n') { px = ROOM_W / 2; py = ROOM_H - 130; }
+      else if (fromDir === 's') { px = ROOM_W / 2; py = 130; }
+      else if (fromDir === 'w') { px = ROOM_W - 130; py = ROOM_H / 2; }
+      else if (fromDir === 'e') { px = 130; py = ROOM_H / 2; }
       world.player.x = px;
       world.player.y = py;
       camera.x = px;
@@ -3090,6 +3098,20 @@ const Game = (() => {
       }
     }
 
+    function drawFacingMark(e, radius) {
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.rotate(e.facing || 0);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(radius + 14, 0);
+      ctx.lineTo(radius + 7, -4.5);
+      ctx.lineTo(radius + 7, 4.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     function drawEnemies() {
       for (const e of world.enemies) {
         const flash = e.flash > 0;
@@ -3101,6 +3123,8 @@ const Game = (() => {
             // 作者 NPC 变身后的外观：保持 NPC 彩虹三角造型，放大 300%
             const hue = (world.time * 90) % 360;
             const col = 'hsl(' + hue + ',85%,60%)';
+            ctx.save();
+            ctx.translate(e.x, e.y);
             ctx.shadowColor = col;
             ctx.shadowBlur = 22;
             ctx.fillStyle = flash ? '#ffffff' : col;
@@ -3115,6 +3139,8 @@ const Game = (() => {
             ctx.strokeStyle = 'rgba(255,255,255,0.5)';
             ctx.lineWidth = 3;
             ctx.stroke();
+            ctx.restore();
+            drawFacingMark(e, rr);
             // 血条
             const bw = 300, bh = 10;
             const by = e.y - rr - 34;
@@ -3167,6 +3193,7 @@ const Game = (() => {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(e.x - bw / 2 + bw * 0.4, by - 3, 2, bh + 6);
           ctx.fillRect(e.x - bw / 2 + bw * 0.7, by - 3, 2, bh + 6);
+          drawFacingMark(e, rr);
           ctx.restore();
           continue;
         }
@@ -3216,6 +3243,7 @@ const Game = (() => {
             ctx.fillRect(bx, by - 6, bw * sfrac, 3);
           }
         }
+        drawFacingMark(e, e.radius);
         ctx.restore();
       }
     }
@@ -3680,7 +3708,7 @@ const Game = (() => {
         if (local < 0) {
           // 扫描光束：障碍物随扫描逐渐显现
           const remaining = -local;
-          const progress = utils.clamp(1 - remaining / 0.6, 0, 1);
+          const progress = utils.clamp(1 - remaining / 0.28, 0, 1);
           const beamX = o.x + progress * o.w;
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = ac;
@@ -3691,7 +3719,7 @@ const Game = (() => {
           ctx.globalAlpha = 1;
           continue;
         }
-        const alpha = Math.min(1, local / 0.25);
+        const alpha = Math.min(1, local / 0.15);
         ctx.globalAlpha = alpha;
         ctx.fillStyle = '#101826';
         ctx.fillRect(o.x, o.y, o.w, o.h);
@@ -3942,7 +3970,7 @@ const Game = (() => {
 
     function drawAlert() {
       const room = world.room;
-      if (!room || room.alertT <= 0 || world.enemies.length === 0) return;
+      if (!room || room.alertT == null || room.alertT <= 0 || world.enemies.length === 0) return;
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255, 77, 94, 0.9)';
       ctx.font = 'bold 20px Consolas, monospace';
