@@ -1715,6 +1715,12 @@ const Game = (() => {
         return;
       }
       if (ui.panel !== 'none') {
+        const btn = hitTouchButton(x, y);
+        if (btn && (btn.id === 'panel' || btn.id === 'pause')) {
+          if (btn.id === 'panel') closePanel();
+          else setScreen('paused');
+          return;
+        }
         uiClick(x, y);
         return;
       }
@@ -1834,6 +1840,7 @@ const Game = (() => {
     // ---------- update ----------
     function update(dt) {
       input.frameHandled = false;
+      if (isTouchUI && view.h > view.w) return; // 手机端竖屏锁定，等待横屏
       if (input.tapQueue.size) {
         if (input.tapQueue.has('interact')) input.pressedSet.add('KeyE');
         if (input.tapQueue.has('panel')) input.pressedSet.add('KeyB');
@@ -1961,6 +1968,10 @@ const Game = (() => {
         const mx = input.mouse.x + camera.x - view.w / 2;
         const my = input.mouse.y + camera.y - view.h / 2;
         p.aimAngle = Math.atan2(my - p.y, mx - p.x);
+        if (isTouchUI && input.touch.firing) {
+          const best = assistAim(p, mx, my);
+          if (best !== null) p.aimAngle = best; // 辅助自动瞄准
+        }
       }
 
       let dx = 0, dy = 0;
@@ -2111,6 +2122,24 @@ const Game = (() => {
       camera.x += (tx - camera.x) * Math.min(1, 8 * dt);
       camera.y += (ty - camera.y) * Math.min(1, 8 * dt);
       world.time += dt;
+    }
+
+    function assistAim(p, mx, my) {
+      const aimDir = Math.atan2(my - p.y, mx - p.x);
+      let best = null, bestScore = 1e9;
+      for (const e of world.enemies) {
+        if (e.dead) continue;
+        const d = Math.hypot(e.x - p.x, e.y - p.y);
+        if (d > 900) continue;
+        const ang = Math.atan2(e.y - p.y, e.x - p.x);
+        let diff = Math.abs(ang - aimDir);
+        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+        if (diff < Math.PI / 3) {
+          const score = d + diff * 250;
+          if (score < bestScore) { bestScore = score; best = ang; }
+        }
+      }
+      return best;
     }
 
     function fireOnce(g) {
@@ -2881,8 +2910,7 @@ const Game = (() => {
     function rerollAffix(part, aff) {
       const pool = partsEngine.affixPool.filter(a => a.stat !== aff.stat);
       const pick = pool[Math.floor(Math.random() * pool.length)];
-      const higher = Math.random() < 0.6;
-      const factor = higher ? 1.1 + Math.random() * 0.4 : 0.7 + Math.random() * 0.25;
+      const factor = 0.8 + Math.random() * 0.7; // 原词条强度的 80%~150%
       const oldValue = aff.value;
       aff.stat = pick.stat;
       aff.label = pick.label;
@@ -2916,6 +2944,12 @@ const Game = (() => {
             return;
           }
         }
+      }
+      const m = panelMetrics();
+      if (m.panelW && x >= m.px + m.panelW - 40 && x <= m.px + m.panelW - 4 &&
+          y >= m.py + 4 && y <= m.py + 36) {
+        closePanel(); // 面板右上角 X 关闭
+        return;
       }
       for (const chip of ui.loadoutChips || []) {
         if (x >= chip.x && x <= chip.x + chip.w && y >= chip.y && y <= chip.y + chip.h) {
@@ -3035,6 +3069,17 @@ const Game = (() => {
       drawPanel();
       drawChat();
       drawOverlay();
+      if (isTouchUI && view.h > view.w) {
+        ctx.fillStyle = 'rgba(4,8,14,0.92)';
+        ctx.fillRect(0, 0, view.w, view.h);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#35e0ff';
+        ctx.font = 'bold 26px Consolas, monospace';
+        ctx.fillText('请横屏游玩', view.w / 2, view.h / 2 - 10);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '14px Consolas, monospace';
+        ctx.fillText('旋转设备至横向', view.w / 2, view.h / 2 + 24);
+      }
       drawLowHpVignette();
       if (state.screen === 'playing' && input.keys.has('Space') && !world.dash.active) {
         ctx.fillStyle = 'rgba(53, 224, 255, 0.06)';
@@ -3613,6 +3658,17 @@ const Game = (() => {
       ctx.font = '12px Consolas, monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillText('ESC / B 关闭', view.w / 2, py + 48);
+
+      // 右上角关闭 X
+      ctx.strokeStyle = '#ff4d5e';
+      ctx.lineWidth = 2.5;
+      const cx = px + panelW - 22, cy = py + 20;
+      ctx.beginPath();
+      ctx.moveTo(cx - 7, cy - 7);
+      ctx.lineTo(cx + 7, cy + 7);
+      ctx.moveTo(cx + 7, cy - 7);
+      ctx.lineTo(cx - 7, cy + 7);
+      ctx.stroke();
 
       if (ui.panel === 'parts' && ui.loadout) {
         ctx.textAlign = 'left';

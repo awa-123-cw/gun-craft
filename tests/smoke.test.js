@@ -1001,19 +1001,74 @@ test('手机端：开始界面点击任意处开始', () => {
 
 test('窄屏启用触摸 UI 且触摸按钮可点击', () => {
   const { game } = makeGame();
-  game.debugSetView(600, 800);
+  game.debugSetView(700, 500);
   assert.ok(game.isTouchUI(), '窄屏应启用触摸 UI');
   game.setScreen('playing');
   const btns = game.touchButtons();
   const dashBtn = btns.find(b => b.id === 'dash');
   const interactBtn = btns.find(b => b.id === 'interact');
-  assert.ok(interactBtn.x <= 600, '按钮应在屏内');
+  assert.ok(interactBtn.x <= 700, '按钮应在屏内');
   game.handleClick(dashBtn.x, dashBtn.y);
   assert.ok(game.input.dashTap, '点击瞬身按钮应触发瞬身');
   game.world.chest = { x: 750, y: 550, opened: false };
   game.handleClick(interactBtn.x, interactBtn.y);
   game.update(1 / 120);
   assert.strictEqual(game.ui.panel, 'chest', '点击交互按钮应打开宝箱');
+});
+
+test('手机端辅助自动瞄准吸附最近敌人', () => {
+  const { game } = makeGame();
+  game.debugSetView(700, 500);
+  game.setScreen('playing');
+  game.input.touch.firing = true;
+  game.input.touch.aimId = 99;
+  game.input.touch.aimPos = { x: 1000, y: 300 }; // 大致向右
+  game.world.player.x = 750;
+  game.world.player.y = 550;
+  const e = game.spawnEnemy('chaser', 900, 600, 1);
+  game.world.enemies.push(e);
+  game.update(1 / 120);
+  const expect = Math.atan2(50, 150);
+  assert.ok(Math.abs(game.world.player.aimAngle - expect) < 0.05, '应吸附到最近敌人，实际=' + game.world.player.aimAngle);
+});
+
+test('手机端面板打开时点击背包按钮可关闭', () => {
+  const { game } = makeGame();
+  game.debugSetView(700, 500);
+  game.openPanel('parts');
+  assert.strictEqual(game.ui.panel, 'parts');
+  const btn = game.touchButtons().find(b => b.id === 'panel');
+  game.handleTouchPoint(btn.x, btn.y, 1);
+  assert.strictEqual(game.ui.panel, 'none', '点击背包按钮应关闭面板');
+});
+
+test('属性重组后词条强度为原值的 80%~150%', () => {
+  const { game } = makeGame();
+  const part = {
+    id: 'pistol_body', slot: 'body', name: '标准枪身', rarity: 0, color: '#35e0ff',
+    affixes: [{ stat: 'damage', label: '伤害', pct: 0.12, value: 0.12, enhanced: false, rerolls: 0 }]
+  };
+  const old = part.affixes[0].value;
+  game.world.inventory.push(part);
+  game.openPanel('forgeMenu');
+  const rerollBtn = game.ui.items.find(r => r.action === 'rerollMenu');
+  game.uiClick(rerollBtn.x + 5, rerollBtn.y + 5);
+  const partRow = game.ui.items.find(r => r.part === part);
+  game.uiClick(partRow.x + 5, partRow.y + 5);
+  const affRow = game.ui.items.find(r => r.affix === part.affixes[0]);
+  game.uiClick(affRow.x + 5, affRow.y + 5);
+  const v = part.affixes[0].value;
+  assert.ok(v >= old * 0.8 * 0.99 && v <= old * 1.5 * 1.01,
+    '强度应在 80%~150% 之间，实际倍率=' + (v / old).toFixed(2));
+});
+
+test('手机端竖屏时锁定为横屏提示', () => {
+  const { game } = makeGame();
+  game.debugSetView(400, 800);
+  game.setScreen('playing');
+  const t0 = game.world.time;
+  game.update(1 / 60);
+  assert.strictEqual(game.world.time, t0, '竖屏应锁定不推进');
 });
 
 test('子弹耗尽自动换弹', () => {
